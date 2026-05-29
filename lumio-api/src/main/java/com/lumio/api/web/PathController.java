@@ -5,6 +5,7 @@ import com.lumio.api.enums.Vertical;
 import com.lumio.api.service.PathService;
 import com.lumio.api.transfer.PathRequest;
 import com.lumio.api.transfer.PathResponse;
+import com.lumio.api.transfer.StatusRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -49,6 +50,12 @@ public class PathController {
     @Operation(summary = "Update a path")
     PathResponse update(@PathVariable UUID id, @RequestBody @Valid PathRequest request) {
         return pathService.update(id, request);
+    }
+
+    @PatchMapping("/{id}/status")
+    @Operation(summary = "Update path status")
+    PathResponse patchStatus(@PathVariable UUID id, @RequestBody @Valid StatusRequest request) {
+        return pathService.patchStatus(id, request.status());
     }
 
     @DeleteMapping("/{id}")

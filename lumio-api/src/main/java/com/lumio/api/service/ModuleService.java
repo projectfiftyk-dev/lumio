@@ -6,6 +6,7 @@ import com.lumio.api.exception.ResourceNotFoundException;
 import com.lumio.api.persistence.ModuleRepository;
 import com.lumio.api.persistence.PathRepository;
 import com.lumio.api.service.mapper.ModuleMapper;
+import com.lumio.api.enums.ContentStatus;
 import com.lumio.api.transfer.ModuleRequest;
 import com.lumio.api.transfer.ModuleResponse;
 import lombok.RequiredArgsConstructor;
@@ -58,6 +59,14 @@ public class ModuleService {
         requirePathExists(pathId);
         LumioModule module = findOrThrow(pathId, id);
         moduleMapper.applyUpdate(module, request);
+        return moduleMapper.toResponse(moduleRepository.save(module));
+    }
+
+    @Transactional
+    public ModuleResponse patchStatus(UUID pathId, UUID id, ContentStatus status) {
+        requirePathExists(pathId);
+        LumioModule module = findOrThrow(pathId, id);
+        module.setStatus(status);
         return moduleMapper.toResponse(moduleRepository.save(module));
     }
 

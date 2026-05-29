@@ -14,12 +14,14 @@ public class PathMapper {
     private final StorageService storageService;
 
     public PathResponse toResponse(LumioPath path) {
+        String key = path.getThumbnail();
         return new PathResponse(
                 path.getId(),
                 path.getTitle(),
                 path.getDescription(),
                 path.getVertical(),
-                toPresignedUrl(path.getThumbnail()),
+                key,
+                toPresignedUrl(key),
                 path.getTheme(),
                 path.getStatus(),
                 path.getMetadata(),

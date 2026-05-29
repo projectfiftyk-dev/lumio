@@ -1,13 +1,22 @@
 import { useState } from 'react';
-import { Eye, EyeOff, Sparkles } from 'lucide-react';
+import { Eye, EyeOff, Sparkles, Pencil } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import Navbar from '../components/Navbar';
+import { useApp } from '../context/AppContext';
 
 type Tab = 'signin' | 'signup';
 
 export default function AuthPage() {
   const [tab, setTab] = useState<Tab>('signin');
   const [showPassword, setShowPassword] = useState(false);
+  const navigate = useNavigate();
+  const { setEditMode } = useApp();
+
+  function enterPlatform(editMode = false) {
+    setEditMode(editMode);
+    navigate('/platform');
+  }
 
   return (
     <div className="min-h-screen bg-[#F5F3FF] flex flex-col">
@@ -63,8 +72,8 @@ export default function AuthPage() {
               {/* Google */}
               <button
                 type="button"
-                disabled
-                className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl border border-[#E2DFFF] bg-white text-[#1A1839] text-sm font-medium hover:border-violet-300 transition-colors cursor-not-allowed opacity-70"
+                onClick={() => enterPlatform()}
+                className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl border border-[#E2DFFF] bg-white text-[#1A1839] text-sm font-medium hover:border-violet-300 transition-colors cursor-pointer"
               >
                 <GoogleIcon />
                 Continue with Google
@@ -73,8 +82,8 @@ export default function AuthPage() {
               {/* Apple */}
               <button
                 type="button"
-                disabled
-                className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl bg-[#1A1839] text-white text-sm font-medium hover:bg-[#2d2b47] transition-colors cursor-not-allowed opacity-70"
+                onClick={() => enterPlatform()}
+                className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl bg-[#1A1839] text-white text-sm font-medium hover:bg-[#2d2b47] transition-colors cursor-pointer"
               >
                 <AppleIcon />
                 Continue with Apple
@@ -144,8 +153,7 @@ export default function AuthPage() {
                 <div className="text-right">
                   <button
                     type="button"
-                    disabled
-                    className="text-xs text-violet-400 hover:text-violet-600 transition-colors cursor-not-allowed"
+                    className="text-xs text-violet-400 hover:text-violet-600 transition-colors cursor-pointer"
                   >
                     Forgot password?
                   </button>
@@ -153,18 +161,28 @@ export default function AuthPage() {
               )}
 
               <button
-                type="submit"
-                disabled
-                className="lumio-btn-primary w-full mt-1 opacity-70 cursor-not-allowed"
+                type="button"
+                onClick={() => enterPlatform()}
+                className="lumio-btn-primary w-full mt-1"
               >
                 {tab === 'signin' ? 'Sign In' : 'Create account'}
               </button>
             </form>
 
-            {/* Disclaimer */}
-            <p className="text-center text-xs text-violet-300 pt-1">
-              Authentication is not active yet — this form is a placeholder.
-            </p>
+            {/* Edit mode entry */}
+            <div className="border-t border-[#E2DFFF] pt-4">
+              <button
+                type="button"
+                onClick={() => enterPlatform(true)}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-dashed border-violet-300 text-violet-600 text-sm font-medium hover:bg-violet-50 hover:border-violet-400 transition-all duration-200 cursor-pointer"
+              >
+                <Pencil className="w-4 h-4" />
+                Enter as Editor
+              </button>
+              <p className="text-center text-xs text-violet-300 mt-2">
+                Temporary — grants full editing rights.
+              </p>
+            </div>
           </div>
 
           {/* Toggle link */}

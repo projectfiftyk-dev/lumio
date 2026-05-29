@@ -65,7 +65,7 @@ class ModuleServiceTest {
         sampleModule.setUpdatedAt(OffsetDateTime.now());
 
         sampleResponse = new ModuleResponse(
-                moduleId, pathId, "Module 1", null, null, 1, ContentStatus.DRAFT,
+                moduleId, pathId, "Module 1", null, null, null, 1, ContentStatus.DRAFT,
                 OffsetDateTime.now(), OffsetDateTime.now()
         );
     }

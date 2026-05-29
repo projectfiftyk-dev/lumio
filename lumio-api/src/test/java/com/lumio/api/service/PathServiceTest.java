@@ -51,7 +51,7 @@ class PathServiceTest {
 
         sampleResponse = new PathResponse(
                 pathId, "Test Path", null, Vertical.LANGUAGE,
-                null, null, ContentStatus.DRAFT, null,
+                null, null, null, ContentStatus.DRAFT, null,
                 OffsetDateTime.now(), OffsetDateTime.now()
         );
     }

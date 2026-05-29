@@ -3,6 +3,7 @@ package com.lumio.api.web;
 import com.lumio.api.service.ModuleService;
 import com.lumio.api.transfer.ModuleRequest;
 import com.lumio.api.transfer.ModuleResponse;
+import com.lumio.api.transfer.StatusRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -47,6 +48,15 @@ public class ModuleController {
             @PathVariable UUID id,
             @RequestBody @Valid ModuleRequest request) {
         return moduleService.update(pathId, id, request);
+    }
+
+    @PatchMapping("/{id}/status")
+    @Operation(summary = "Update module status")
+    ModuleResponse patchStatus(
+            @PathVariable UUID pathId,
+            @PathVariable UUID id,
+            @RequestBody @Valid StatusRequest request) {
+        return moduleService.patchStatus(pathId, id, request.status());
     }
 
     @DeleteMapping("/{id}")

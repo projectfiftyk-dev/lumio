@@ -10,6 +10,7 @@ public record ModuleResponse(
         UUID pathId,
         String title,
         String description,
+        String thumbnailKey,
         String thumbnail,
         Integer orderIndex,
         ContentStatus status,

@@ -6,6 +6,7 @@ import com.lumio.api.enums.Vertical;
 import com.lumio.api.exception.ResourceNotFoundException;
 import com.lumio.api.persistence.PathRepository;
 import com.lumio.api.service.mapper.PathMapper;
+import com.lumio.api.enums.ContentStatus;
 import com.lumio.api.transfer.PathRequest;
 import com.lumio.api.transfer.PathResponse;
 import lombok.RequiredArgsConstructor;
@@ -48,6 +49,13 @@ public class PathService {
     public PathResponse update(UUID id, PathRequest request) {
         LumioPath path = findOrThrow(id);
         pathMapper.applyUpdate(path, request);
+        return pathMapper.toResponse(pathRepository.save(path));
+    }
+
+    @Transactional
+    public PathResponse patchStatus(UUID id, ContentStatus status) {
+        LumioPath path = findOrThrow(id);
+        path.setStatus(status);
         return pathMapper.toResponse(pathRepository.save(path));
     }
 

@@ -14,12 +14,14 @@ public class ModuleMapper {
     private final StorageService storageService;
 
     public ModuleResponse toResponse(LumioModule module) {
+        String key = module.getThumbnail();
         return new ModuleResponse(
                 module.getId(),
                 module.getPath().getId(),
                 module.getTitle(),
                 module.getDescription(),
-                toPresignedUrl(module.getThumbnail()),
+                key,
+                toPresignedUrl(key),
                 module.getOrderIndex(),
                 module.getStatus(),
                 module.getCreatedAt(),

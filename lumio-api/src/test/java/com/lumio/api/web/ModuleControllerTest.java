@@ -35,7 +35,7 @@ class ModuleControllerTest {
 
     private ModuleResponse sampleResponse() {
         return new ModuleResponse(
-                UUID.randomUUID(), pathId, "Week 1", null, null, 1, ContentStatus.DRAFT,
+                UUID.randomUUID(), pathId, "Week 1", null, null, null, 1, ContentStatus.DRAFT,
                 OffsetDateTime.now(), OffsetDateTime.now()
         );
     }

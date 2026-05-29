@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@variant dark (&:where(.dark, .dark *));
+
 @layer base {
   html {
     font-family: 'Inter', system-ui, sans-serif;
@@ -22,16 +24,22 @@
     background: #C4B5FD;
     border-radius: 3px;
   }
+
+  html.dark ::-webkit-scrollbar-thumb {
+    background: #4c3d8a;
+  }
 }
 
 @layer components {
   .lumio-card {
-    @apply bg-white border border-[#E2DFFF] rounded-2xl shadow-sm;
+    @apply bg-white border border-[#E2DFFF] rounded-2xl shadow-sm
+           dark:bg-[#1a1833] dark:border-[#2d2b47];
   }
   .lumio-btn-primary {
     @apply bg-violet-600 hover:bg-violet-500 active:bg-violet-700 text-white font-semibold rounded-xl px-6 py-3 transition-all duration-200 cursor-pointer;
   }
   .lumio-btn-ghost {
-    @apply border border-[#E2DFFF] hover:border-violet-400 text-violet-600 hover:text-violet-700 rounded-xl px-5 py-2.5 transition-all duration-200 font-medium cursor-pointer bg-white;
+    @apply border border-[#E2DFFF] hover:border-violet-400 text-violet-600 hover:text-violet-700 rounded-xl px-5 py-2.5 transition-all duration-200 font-medium cursor-pointer
+           bg-white dark:bg-[#1a1833] dark:border-[#2d2b47] dark:text-violet-400 dark:hover:text-violet-300 dark:hover:border-violet-500;
   }
 }

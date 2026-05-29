@@ -12,6 +12,7 @@ public record PathResponse(
         String title,
         String description,
         Vertical vertical,
+        String thumbnailKey,
         String thumbnail,
         String theme,
         ContentStatus status,

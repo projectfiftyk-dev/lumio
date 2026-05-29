@@ -34,7 +34,7 @@ class PathControllerTest {
     private PathResponse sampleResponse() {
         return new PathResponse(
                 UUID.randomUUID(), "Test Path", null, Vertical.LANGUAGE,
-                null, null, ContentStatus.DRAFT, null,
+                null, null, null, ContentStatus.DRAFT, null,
                 OffsetDateTime.now(), OffsetDateTime.now()
         );
     }
