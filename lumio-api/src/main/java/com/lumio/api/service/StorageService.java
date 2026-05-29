@@ -74,6 +74,33 @@ public class StorageService {
         }
     }
 
+    public String uploadYaml(MultipartFile file) {
+        String contentType = file.getContentType();
+        // Browsers often send application/octet-stream for YAML — accept it
+        if (contentType != null
+                && !contentType.contains("yaml")
+                && !contentType.contains("text/")
+                && !contentType.equals("application/octet-stream")) {
+            throw new IllegalArgumentException("Expected a YAML file (received: " + contentType + ")");
+        }
+
+        String key = "books/" + UUID.randomUUID() + ".yaml";
+
+        try (InputStream is = file.getInputStream()) {
+            minioClient.putObject(PutObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(key)
+                    .stream(is, file.getSize(), -1)
+                    .contentType("application/x-yaml")
+                    .build());
+        } catch (Exception e) {
+            throw new StorageException("Failed to upload YAML to storage", e);
+        }
+
+        LOGGER.info("Uploaded YAML {} ({} bytes)", key, file.getSize());
+        return key;
+    }
+
     private String buildKey(String originalFilename) {
         String ext = "";
         if (originalFilename != null && originalFilename.contains(".")) {

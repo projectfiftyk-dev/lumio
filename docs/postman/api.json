@@ -1,8 +1,8 @@
 {
   "info": {
     "name": "Lumio API",
-    "description": "Paths, Modules & Media — v0.1",
-    "_postman_id": "lumio-api-v0.1",
+    "description": "Paths, Modules, Books & Media — v0.3",
+    "_postman_id": "lumio-api-v0.3",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -28,6 +28,18 @@
       "value": "",
       "type": "string",
       "description": "Set automatically by the Upload Thumbnail request. Pass as `thumbnail` in create/update bodies."
+    },
+    {
+      "key": "bookId",
+      "value": "",
+      "type": "string",
+      "description": "Set automatically by the Create Book or Upload Confirm request."
+    },
+    {
+      "key": "yamlKey",
+      "value": "",
+      "type": "string",
+      "description": "Set automatically by the Upload Confirm request. The MinIO object key for the uploaded YAML."
     }
   ],
   "item": [
@@ -603,6 +615,304 @@
               "path": ["paths", "00000000-0000-0000-0000-000000000000", "modules"]
             },
             "description": "Uses a nil UUID for pathId. Expects 404 Not Found."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Books",
+      "item": [
+        {
+          "name": "List books for module",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}/books",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}", "books"]
+            },
+            "description": "Returns all books for the given module, ordered by order_index ascending. Returns 404 if the module does not exist."
+          },
+          "response": []
+        },
+        {
+          "name": "Get book by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}/books/{{bookId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}", "books", "{{bookId}}"]
+            },
+            "description": "Returns a single book. The `coverImageUrl` field is a fresh 7-day presigned URL. Returns 404 if the module or book does not exist."
+          },
+          "response": []
+        },
+        {
+          "name": "Create book (manual)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('bookId', body.id);",
+                  "    pm.test('bookId saved', () => pm.expect(body.id).to.be.a('string'));",
+                  "    pm.test('moduleId matches', () => pm.expect(body.moduleId).to.eql(pm.collectionVariables.get('moduleId')));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Ein Tag in Berlin\",\n  \"description\": \"Step off the U-Bahn at Alexanderplatz with no German.\",\n  \"orderIndex\": 1,\n  \"required\": false,\n  \"prerequisiteBookIds\": [],\n  \"level\": \"A1\",\n  \"language\": \"de\",\n  \"author\": \"Lumio for Language\",\n  \"status\": \"DRAFT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}/books",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}", "books"]
+            },
+            "description": "Creates a book record without a YAML upload. Use this for manual entry. Saves the returned ID to the `bookId` collection variable."
+          },
+          "response": []
+        },
+        {
+          "name": "Upload YAML — preview",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "A YAML file following the Loom StoryFormat spec. Only text-to-text nodes (dialogue, choice, free_text, chat) are counted.",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}/books/upload/preview",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}", "books", "upload", "preview"]
+            },
+            "description": "Parses the YAML and returns a preview (metadata + node counts). Nothing is written to the database or MinIO at this stage.\n\nReturns:\n- `title`, `author`, `language`, `description`, `tags`, `level`, `coverImage`\n- `sceneCount`, `nodeCount`, `nodeTypeBreakdown`\n\nSend to the frontend so the user can confirm before committing."
+          },
+          "response": []
+        },
+        {
+          "name": "Import YAML into book",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('yamlKey', body.yamlKey);",
+                  "    pm.test('yamlKey saved', () => pm.expect(body.yamlKey).to.be.a('string'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "The YAML file to import. If this book already has a YAML, the old file is deleted from MinIO first.",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}/books/{{bookId}}/yaml",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}", "books", "{{bookId}}", "yaml"]
+            },
+            "description": "Imports a YAML file into an existing book. If the book already has a YAML, the previous file is removed from MinIO before the new one is stored.\n\nPrerequisite: create a book first — the `bookId` must exist.\n\nSaves `yamlKey` to the collection variable."
+          },
+          "response": []
+        },
+        {
+          "name": "Upload cover image",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('coverImageUrl is a presigned URL', () => {",
+                  "        if (body.coverImageUrl) pm.expect(body.coverImageUrl).to.include('X-Amz-Signature');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Image file (jpg, png, webp, gif). If the book already has a cover, the old image is deleted from MinIO first.",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}/books/{{bookId}}/cover",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}", "books", "{{bookId}}", "cover"]
+            },
+            "description": "Uploads a cover image for an existing book. If a previous cover exists, it is removed from MinIO first.\n\nReturns the updated book with a fresh `coverImageUrl` presigned URL."
+          },
+          "response": []
+        },
+        {
+          "name": "Update book",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Ein Tag in Berlin (Updated)\",\n  \"description\": \"Updated description.\",\n  \"orderIndex\": 1,\n  \"required\": false,\n  \"prerequisiteBookIds\": [],\n  \"level\": \"A1\",\n  \"language\": \"de\",\n  \"author\": \"Lumio for Language\",\n  \"status\": \"PUBLISHED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}/books/{{bookId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}", "books", "{{bookId}}"]
+            },
+            "description": "Full update of book metadata. The `yamlKey` is not changed by this endpoint — to update the YAML, delete and re-upload. Returns 404 if module or book does not exist."
+          },
+          "response": []
+        },
+        {
+          "name": "Patch book status",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"PUBLISHED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}/books/{{bookId}}/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}", "books", "{{bookId}}", "status"]
+            },
+            "description": "Toggles only the status field. Returns 404 if module or book does not exist."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete book",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}/books/{{bookId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}", "books", "{{bookId}}"]
+            },
+            "description": "Deletes the book record and removes the associated YAML file from MinIO. Returns 204 on success."
+          },
+          "response": []
+        },
+        {
+          "name": "Create book — validation error",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Missing title, orderIndex and status — should return 400\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/modules/{{moduleId}}/books",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "{{moduleId}}", "books"]
+            },
+            "description": "Intentionally omits required fields. Expects 400 Bad Request."
+          },
+          "response": []
+        },
+        {
+          "name": "List books — module not found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/modules/00000000-0000-0000-0000-000000000000/books",
+              "host": ["{{baseUrl}}"],
+              "path": ["modules", "00000000-0000-0000-0000-000000000000", "books"]
+            },
+            "description": "Uses a nil UUID for moduleId. Expects 404 Not Found."
           },
           "response": []
         }

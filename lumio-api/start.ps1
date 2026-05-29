@@ -10,23 +10,30 @@ $ScriptDir = $PSScriptRoot
 $yml = Get-Content "$ScriptDir\src\main\resources\application.yml" -Raw
 if ($yml -match 'port:\s*(\d+)') { $port = [int]$Matches[1] } else { $port = 8080 }
 
-# Kill whatever is on the port
-$listening = netstat -ano | Select-String ":$port .*LISTENING"
-if ($listening) {
-    $procId = (($listening.ToString().Trim() -split '\s+') | Where-Object { $_ -match '^\d+$' })[-1]
-    if ($procId) {
-        Write-Host "Port $port in use by PID $procId — stopping..." -ForegroundColor Yellow
-        Stop-Process -Id ([int]$procId) -Force
-        Start-Sleep -Milliseconds 600
-        Write-Host "Port $port is now free." -ForegroundColor Green
+# Kill all processes listening on the port
+$connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+if ($connections) {
+    $pids = $connections.OwningProcess | Sort-Object -Unique
+    foreach ($procId in $pids) {
+        if ($procId -and $procId -gt 0) {
+            Write-Host "Port $port in use by PID $procId — stopping..." -ForegroundColor Yellow
+            Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue
+        }
     }
+    # Wait until the port is actually released
+    $waited = 0
+    while ((Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue) -and $waited -lt 10) {
+        Start-Sleep -Milliseconds 300
+        $waited++
+    }
+    Write-Host "Port $port is now free." -ForegroundColor Green
 } else {
     Write-Host "Port $port is free." -ForegroundColor Green
 }
 
 # Build the Maven command
-$mvnArgs = "compile", "exec:exec", "-f", "$ScriptDir\pom.xml"
-if ($Profile) { $mvnArgs += "-P", $Profile }
+$mvnArgs = "spring-boot:run", "-f", "$ScriptDir\pom.xml"
+if ($Profile) { $mvnArgs += "-Dspring-boot.run.profiles=$Profile" }
 
-Write-Host "Starting lumio-api on port $port..." -ForegroundColor Cyan
+Write-Host "Starting lumio-api on port $port$(if ($Profile) { " [profile: $Profile]" })..." -ForegroundColor Cyan
 & mvn @mvnArgs

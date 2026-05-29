@@ -5,6 +5,7 @@ import { getModules, deleteModule, patchModuleStatus, type ModuleResponse } from
 import { type PathResponse } from '../api/paths';
 import { useApp } from '../context/AppContext';
 import ModuleModal from './ModuleModal';
+import BooksSection from './BooksSection';
 import ConfirmDialog from '../components/ConfirmDialog';
 
 interface Props {
@@ -16,7 +17,7 @@ const VERTICAL_COLORS: Record<string, string> = {
   language: 'bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300',
   kids: 'bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300',
   learners: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300',
-  reader: 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300',
+  reader: 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400',
 };
 
 interface ModuleRowProps {
@@ -32,67 +33,80 @@ function ModuleRow({ mod, isEditMode, onEdit, onDelete, onToggleStatus }: Module
 
   return (
     <div className="lumio-card overflow-hidden">
-      {/* Always-visible header row */}
-      <div className="flex items-center gap-3 px-5 py-3">
-        <span className="text-xs font-bold text-violet-300 dark:text-violet-600 flex-shrink-0 w-5 text-right">
-          {mod.orderIndex + 1}
-        </span>
-
-        <div className="flex-1 min-w-0">
-          <h3 className="font-bold text-[#1A1839] dark:text-white text-sm truncate">{mod.title}</h3>
+      {/* Thumbnail — full width, no background wrapper */}
+      {mod.thumbnail && (
+        <div className="relative">
+          <img src={mod.thumbnail} alt={mod.title} className="w-full h-auto object-contain" />
+          {/* Collapse button overlaid on image */}
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="absolute top-3 right-3 p-1.5 bg-black/30 hover:bg-black/50 text-white rounded-lg transition-colors cursor-pointer backdrop-blur-sm"
+          >
+            <ChevronDown className={clsx('w-4 h-4 transition-transform duration-200', expanded && 'rotate-180')} />
+          </button>
         </div>
+      )}
 
-        {isEditMode && (
-          <span className={clsx(
-            'text-xs px-2 py-0.5 rounded-full font-medium flex-shrink-0',
-            mod.status === 'published'
-              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
-              : 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400'
-          )}>
-            {mod.status}
-          </span>
-        )}
+      {/* Title row — always visible, centered */}
+      <div className="flex items-center justify-between px-5 py-3 gap-3">
 
-        {isEditMode && (
-          <div className="flex gap-0.5 flex-shrink-0">
-            <button title={mod.status === 'published' ? 'Set to Draft' : 'Publish'} onClick={onToggleStatus} className="p-1.5 text-violet-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition-colors cursor-pointer">
-              {mod.status === 'published' ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-            </button>
-            <button onClick={onEdit} className="p-1.5 text-violet-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition-colors cursor-pointer">
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={onDelete} className="p-1.5 text-violet-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer">
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
+        <h3 className="font-bold text-[#1A1839] dark:text-white text-sm text-center flex-1">{mod.title}</h3>
 
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className="p-1.5 text-violet-300 dark:text-violet-600 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition-colors cursor-pointer flex-shrink-0"
-        >
-          <ChevronDown className={clsx('w-4 h-4 transition-transform duration-200', expanded && 'rotate-180')} />
-        </button>
-      </div>
-
-      {/* Collapsible: thumbnail + body */}
-      {expanded && (
-        <>
-          {mod.thumbnail && (
-            <div className="w-full h-[20vh] bg-[#F5F3FF] dark:bg-[#0f0e1a] border-t border-[#E2DFFF] dark:border-[#2d2b47]">
-              <img src={mod.thumbnail} alt={mod.title} className="w-full h-full object-contain" />
-            </div>
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          {isEditMode && (
+            <>
+              <span
+                className={clsx(
+                  'text-xs px-2 py-0.5 rounded-full font-medium mr-1',
+                  mod.status === 'published'
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                    : 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400',
+                )}
+              >
+                {mod.status}
+              </span>
+              <button
+                title={mod.status === 'published' ? 'Set to Draft' : 'Publish'}
+                onClick={onToggleStatus}
+                className="p-1.5 text-violet-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition-colors cursor-pointer"
+              >
+                {mod.status === 'published' ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+              <button
+                onClick={onEdit}
+                className="p-1.5 text-violet-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition-colors cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={onDelete}
+                className="p-1.5 text-violet-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </>
           )}
 
-          <div className="border-t border-[#E2DFFF] dark:border-[#2d2b47] px-5 py-4">
-            {mod.description && (
-              <p className="text-xs text-violet-400 dark:text-violet-500 mb-4">{mod.description}</p>
-            )}
-            <div className="flex items-center justify-center py-5">
-              <p className="text-xs text-violet-300 dark:text-violet-700">Books will appear here</p>
-            </div>
-          </div>
-        </>
+          {/* Collapse toggle when no thumbnail */}
+          {!mod.thumbnail && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="p-1.5 text-violet-300 dark:text-violet-600 hover:text-violet-500 dark:hover:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition-colors cursor-pointer"
+            >
+              <ChevronDown className={clsx('w-4 h-4 transition-transform duration-200', expanded && 'rotate-180')} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Collapsible: description + books */}
+      {expanded && (
+        <div className="border-t border-[#E2DFFF] dark:border-[#2d2b47] px-5 pb-5">
+          {mod.description && (
+            <p className="text-xs text-violet-400 dark:text-violet-500 text-center pt-4 pb-2">{mod.description}</p>
+          )}
+          <BooksSection moduleId={mod.id} isEditMode={isEditMode} />
+        </div>
       )}
     </div>
   );

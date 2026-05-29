@@ -1,12 +1,21 @@
 # Lumio API Documentation
-**Paths & Modules — v0.1**  
+**Paths, Modules & Books — v0.2**  
 Internal Draft · May 2026
+
+---
+
+## Changelog
+
+| Version | Date | Changes |
+|---------|------|---------|
+| v0.2 | May 2026 | Added Books/Episodes section with unlock logic, prerequisites, and YAML storage |
+| v0.1 | May 2026 | Initial — Paths and Modules |
 
 ---
 
 ## Overview
 
-This document covers the first two resource groups supported by the Lumio API: Paths and Modules. These form the top two levels of the content hierarchy.
+This document covers the first three resource groups supported by the Lumio API: Paths, Modules, and Books.
 
 **Content hierarchy:**
 ```
@@ -186,7 +195,7 @@ Deletes a path and cascades deletion to all its modules. Returns `204 No Content
 
 ## 2. Modules
 
-A Module is the second level of the content hierarchy, nested inside a Path. It groups a set of related episodes and provides a narrative chapter structure for the learner. Modules are ordered — the learner progresses through them sequentially.
+A Module is the second level of the content hierarchy, nested inside a Path. It groups a set of related books and provides a narrative chapter structure for the learner. Modules are ordered — the learner progresses through them sequentially.
 
 ### 2.1 Endpoint Summary
 
@@ -271,11 +280,183 @@ Updates an existing module. Send the full module body. Returns the updated resou
 
 ### 2.6 DELETE /api/paths/{pathId}/modules/{id}
 
-Deletes a module. Returns `204 No Content` on success. Cascade deletion to books within the module will be handled when the Book endpoints are introduced.
+Deletes a module. Returns `204 No Content` on success. Cascade deletion to books within the module is handled automatically.
 
 ---
 
-## 3. Error Codes
+## 3. Books
+
+A Book (also called an Episode) is the core content unit — a single interactive narrative experience stored as a YAML file in MinIO. Books live inside a Module and are progressed through sequentially, with unlock logic controlling when each book becomes available to the learner.
+
+### 3.1 Unlock Logic
+
+Books use a prerequisite system to control progression. Each book declares which other books must be completed before it becomes available.
+
+**How it works:**
+
+- `required` — whether this book must be completed to finish the module. Optional books (`required: false`) can be skipped without blocking module completion.
+- `prerequisite_book_ids` — a list of book UUIDs that must all be completed before this book unlocks. An empty array means the book is available immediately.
+
+**Examples:**
+
+Linear progression — each book unlocks the next:
+```
+Book 1 (no prerequisites) → complete → unlocks Book 2
+Book 2 (prerequisite: Book 1) → complete → unlocks Book 3
+```
+
+Multi-book gate — two books must be done before the third unlocks:
+```
+Book 1 (no prerequisites)  ─┐
+                             ├─ both complete → unlocks Book 3
+Book 2 (no prerequisites)  ─┘
+Book 3 (prerequisites: Book 1, Book 2)
+```
+
+Optional bonus book — does not block progression:
+```
+Book 1 → complete → unlocks Book 2 (required) + Book 3 (optional bonus)
+Book 2 (required) → completing this finishes the module
+Book 3 (required: false) → available but skippable
+```
+
+---
+
+### 3.2 Endpoint Summary
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/paths/{pathId}/modules/{moduleId}/books` | List all books in a module |
+| `GET` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}` | Retrieve a single book |
+| `GET` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}/content` | Fetch the full YAML content from MinIO |
+| `POST` | `/api/paths/{pathId}/modules/{moduleId}/books` | Create a book (metadata only) |
+| `PUT` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}` | Update book metadata |
+| `PUT` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}/content` | Upload or replace YAML content in MinIO |
+| `DELETE` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}` | Delete a book and its YAML from MinIO |
+
+---
+
+### 3.3 Book Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | UUID | Auto | Generated on creation. |
+| `module_id` | UUID | Auto | Set from the URL path parameter. |
+| `title` | String | Yes | Display name for this book. |
+| `description` | String | No | Short summary shown on the book card. |
+| `thumbnail` | String | No | MinIO object path to the book cover image. |
+| `order_index` | Integer | Yes | Display order within the module. Lower index appears first. |
+| `required` | Boolean | Yes | Whether this book must be completed for module completion. Defaults to `true`. |
+| `prerequisite_book_ids` | UUID[] | No | List of book IDs that must be completed before this book unlocks. Empty array means immediately available. |
+| `yaml_path` | String | Auto | MinIO object path to the YAML content file. Set automatically on content upload. |
+| `duration_minutes` | Integer | No | Estimated play time. Shown on the book card. |
+| `level` | String | No | Difficulty level for this specific book: `A1`, `A2`, `B1`, etc. |
+| `status` | Enum | Yes | `DRAFT` or `PUBLISHED`. |
+| `created_at` | DateTime | Auto | Set on creation. |
+| `updated_at` | DateTime | Auto | Updated on every write. |
+
+---
+
+### 3.4 GET /api/paths/{pathId}/modules/{moduleId}/books
+
+Returns all books in a module, ordered by `order_index` ascending. Each book includes an `unlocked` boolean computed from the current user's progress (when auth is active — always `true` for now).
+
+**Example Response**
+```json
+[
+  {
+    "id": "b1b2b3b4-...",
+    "module_id": "m1m2m3m4-...",
+    "title": "Day 1 — The Airport",
+    "description": "You land in Berlin. Navigate arrivals, passport control, and find your transfer.",
+    "order_index": 1,
+    "required": true,
+    "prerequisite_book_ids": [],
+    "yaml_path": "books/german-a1/module-1/day-1-airport.yaml",
+    "duration_minutes": 10,
+    "level": "A1",
+    "status": "PUBLISHED",
+    "unlocked": true,
+    "created_at": "2026-05-29T08:00:00Z",
+    "updated_at": "2026-05-29T08:00:00Z"
+  },
+  {
+    "id": "b5b6b7b8-...",
+    "module_id": "m1m2m3m4-...",
+    "title": "Day 2 — The S-Bahn",
+    "description": "Buy a ticket and navigate the Berlin public transport system.",
+    "order_index": 2,
+    "required": true,
+    "prerequisite_book_ids": ["b1b2b3b4-..."],
+    "yaml_path": "books/german-a1/module-1/day-2-sbahn.yaml",
+    "duration_minutes": 8,
+    "level": "A1",
+    "status": "PUBLISHED",
+    "unlocked": false,
+    "created_at": "2026-05-29T08:00:00Z",
+    "updated_at": "2026-05-29T08:00:00Z"
+  }
+]
+```
+
+---
+
+### 3.5 GET .../books/{id}/content
+
+Fetches the full YAML content for a book directly from MinIO. Returns the raw YAML string. Returns `404` if the book has no content uploaded yet.
+
+```
+GET /api/paths/{pathId}/modules/{moduleId}/books/{id}/content
+```
+
+---
+
+### 3.6 POST .../books
+
+Creates a book metadata record. YAML content is uploaded separately via the content endpoint.
+
+**Request Body**
+```json
+{
+  "title": "Day 1 — The Airport",
+  "description": "You land in Berlin. Navigate arrivals and find your transfer.",
+  "order_index": 1,
+  "required": true,
+  "prerequisite_book_ids": [],
+  "duration_minutes": 10,
+  "level": "A1",
+  "status": "DRAFT"
+}
+```
+
+---
+
+### 3.7 PUT .../books/{id}/content
+
+Uploads or replaces the YAML file for a book in MinIO. Accepts `text/plain` or `application/yaml` content type. Automatically sets `yaml_path` on the book record.
+
+```
+PUT /api/paths/{pathId}/modules/{moduleId}/books/{id}/content
+Content-Type: application/yaml
+
+metadata:
+  title: "Day 1 — The Airport"
+  version: "1.0"
+scenes:
+  - id: arrivals
+    start: true
+    ...
+```
+
+---
+
+### 3.8 DELETE .../books/{id}
+
+Deletes the book metadata record and removes the associated YAML file from MinIO. Returns `204 No Content` on success.
+
+---
+
+## 4. Error Codes
 
 | Code | Meaning |
 |------|---------|
@@ -283,19 +464,21 @@ Deletes a module. Returns `204 No Content` on success. Cascade deletion to books
 | `201` | Created — resource created successfully. Returns the new resource. |
 | `204` | No Content — deletion succeeded. No body returned. |
 | `400` | Bad Request — validation failed. Check required fields and enum values. |
-| `404` | Not Found — the path or module with the given ID does not exist. |
+| `404` | Not Found — the resource with the given ID does not exist. |
+| `409` | Conflict — prerequisite_book_ids references a book that does not belong to the same module. |
 | `500` | Internal Server Error — unexpected failure. Check server logs. |
 
 ---
 
-## 4. What's Next
+## 5. What's Next
 
 The following resource groups will be documented as they are implemented:
 
-- `Books/Episodes` — nested under Modules
 - `Characters` — nested under Paths
-- `User Progress` — per user, per book
+- `User Progress` — per user, per book, including unlock state computation
 - `User Conversations` — per user, per character
 - `Authentication` — JWT, roles, Spring Security
 
 Authentication will be retrofitted onto existing endpoints — no structural changes required. Write operations (`POST`, `PUT`, `DELETE`) will require an editor or admin role. Read operations will remain public or require a valid user token depending on content status.
+
+Once auth is active, the `unlocked` field on book responses will be computed dynamically per user based on their completed book history against each book's `prerequisite_book_ids`.
