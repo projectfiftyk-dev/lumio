@@ -1,0 +1,612 @@
+{
+  "info": {
+    "name": "Lumio API",
+    "description": "Paths, Modules & Media — v0.1",
+    "_postman_id": "lumio-api-v0.1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "pathId",
+      "value": "",
+      "type": "string",
+      "description": "Set automatically by the Create Path request"
+    },
+    {
+      "key": "moduleId",
+      "value": "",
+      "type": "string",
+      "description": "Set automatically by the Create Module request"
+    },
+    {
+      "key": "thumbnailKey",
+      "value": "",
+      "type": "string",
+      "description": "Set automatically by the Upload Thumbnail request. Pass as `thumbnail` in create/update bodies."
+    }
+  ],
+  "item": [
+    {
+      "name": "Media",
+      "item": [
+        {
+          "name": "Upload thumbnail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('thumbnailKey', body.key);",
+                  "    pm.test('thumbnailKey saved', () => pm.expect(body.key).to.be.a('string'));",
+                  "    pm.test('url is a presigned MinIO URL', () => pm.expect(body.url).to.include('X-Amz-Signature'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Image file to upload (jpg, png, webp, gif). Max 100 MB.",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/media/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["media", "upload"]
+            },
+            "description": "Uploads an image to MinIO (private bucket).\n\nReturns:\n- `key` — the stable object key stored in the DB (e.g. `thumbnails/uuid.jpg`). Save this and pass it as the `thumbnail` field when creating or updating a path or module.\n- `url` — a presigned GET URL valid for 7 days. Use this to preview the image immediately after upload.\n\nOnly `image/*` content types are accepted. Files over 100 MB return 413."
+          },
+          "response": []
+        },
+        {
+          "name": "Upload thumbnail — wrong content type",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "Upload a non-image file (e.g. a .txt or .pdf) to trigger the 400 error.",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/media/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["media", "upload"]
+            },
+            "description": "Uploading a non-image file (e.g. .txt, .pdf) should return 400 Bad Request."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Paths",
+      "item": [
+        {
+          "name": "List all paths",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/paths",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths"],
+              "query": []
+            },
+            "description": "Returns all paths. No filters applied."
+          },
+          "response": []
+        },
+        {
+          "name": "List paths — filtered",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/paths?search=germany&vertical=LANGUAGE&status=PUBLISHED",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "germany",
+                  "description": "Case-insensitive partial match on title and description"
+                },
+                {
+                  "key": "vertical",
+                  "value": "LANGUAGE",
+                  "description": "One of: LANGUAGE, KIDS, LEARNERS, READER"
+                },
+                {
+                  "key": "status",
+                  "value": "PUBLISHED",
+                  "description": "One of: DRAFT, PUBLISHED"
+                }
+              ]
+            },
+            "description": "Returns paths filtered by search term, vertical and status."
+          },
+          "response": []
+        },
+        {
+          "name": "Get path by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/paths/{{pathId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "{{pathId}}"]
+            },
+            "description": "Returns a single path. The `thumbnail` field in the response is a fresh 7-day presigned URL. Returns 404 if not found."
+          },
+          "response": []
+        },
+        {
+          "name": "Create path",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('pathId', body.id);",
+                  "    pm.test('pathId saved to collection variable', () => pm.expect(body.id).to.be.a('string'));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"1 Year in Germany\",\n  \"description\": \"Live through a full year in Berlin, from arrival to fluency.\",\n  \"vertical\": \"LANGUAGE\",\n  \"theme\": \"dark\",\n  \"status\": \"DRAFT\",\n  \"metadata\": {\n    \"language_from\": \"English\",\n    \"language_to\": \"German\",\n    \"level_start\": \"A1\",\n    \"level_end\": \"B1\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/paths",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths"]
+            },
+            "description": "Creates a new path without a thumbnail. Saves the returned ID to the `pathId` collection variable."
+          },
+          "response": []
+        },
+        {
+          "name": "Create path — with thumbnail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('pathId', body.id);",
+                  "    pm.test('pathId saved', () => pm.expect(body.id).to.be.a('string'));",
+                  "    pm.test('thumbnail is a presigned URL', () => {",
+                  "        if (body.thumbnail) pm.expect(body.thumbnail).to.include('X-Amz-Signature');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"1 Year in Germany\",\n  \"description\": \"Live through a full year in Berlin, from arrival to fluency.\",\n  \"vertical\": \"LANGUAGE\",\n  \"thumbnail\": \"{{thumbnailKey}}\",\n  \"theme\": \"dark\",\n  \"status\": \"DRAFT\",\n  \"metadata\": {\n    \"language_from\": \"English\",\n    \"language_to\": \"German\",\n    \"level_start\": \"A1\",\n    \"level_end\": \"B1\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/paths",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths"]
+            },
+            "description": "Creates a path with a thumbnail.\n\nPrerequisite: run **Upload thumbnail** first — it saves the object key to the `thumbnailKey` collection variable, which is injected here as the `thumbnail` field.\n\nThe response `thumbnail` field will be a fresh presigned URL pointing to the uploaded image."
+          },
+          "response": []
+        },
+        {
+          "name": "Create path — Kids vertical",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"The Enchanted Forest\",\n  \"description\": \"An interactive storybook adventure for young readers.\",\n  \"vertical\": \"KIDS\",\n  \"theme\": \"forest\",\n  \"status\": \"DRAFT\",\n  \"metadata\": {\n    \"age_range\": \"4-8\",\n    \"theme_world\": \"enchanted_forest\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/paths",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths"]
+            },
+            "description": "Example path for the KIDS vertical."
+          },
+          "response": []
+        },
+        {
+          "name": "Create path — validation error",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Missing title and vertical — should return 400\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/paths",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths"]
+            },
+            "description": "Intentionally omits required fields. Expects 400 Bad Request."
+          },
+          "response": []
+        },
+        {
+          "name": "Update path",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"1 Year in Germany (Updated)\",\n  \"description\": \"Updated description.\",\n  \"vertical\": \"LANGUAGE\",\n  \"theme\": \"dark\",\n  \"status\": \"PUBLISHED\",\n  \"metadata\": {\n    \"language_from\": \"English\",\n    \"language_to\": \"German\",\n    \"level_start\": \"A1\",\n    \"level_end\": \"B2\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/paths/{{pathId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "{{pathId}}"]
+            },
+            "description": "Full update — all fields are replaced. To keep or change the thumbnail, include `\"thumbnail\": \"{{thumbnailKey}}\"` in the body. Omitting it clears the thumbnail. Returns 404 if path does not exist."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete path",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/paths/{{pathId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "{{pathId}}"]
+            },
+            "description": "Deletes the path and cascades to all its modules. Returns 204 on success."
+          },
+          "response": []
+        },
+        {
+          "name": "Get path — not found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/paths/00000000-0000-0000-0000-000000000000",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "00000000-0000-0000-0000-000000000000"]
+            },
+            "description": "Uses a nil UUID. Expects 404 Not Found."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Modules",
+      "item": [
+        {
+          "name": "List modules for path",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/paths/{{pathId}}/modules",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "{{pathId}}", "modules"]
+            },
+            "description": "Returns all modules for the given path, ordered by order_index ascending. Returns 404 if the path does not exist."
+          },
+          "response": []
+        },
+        {
+          "name": "Get module by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/paths/{{pathId}}/modules/{{moduleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "{{pathId}}", "modules", "{{moduleId}}"]
+            },
+            "description": "Returns a single module. The `thumbnail` field is a fresh presigned URL. Returns 404 if the path or module does not exist."
+          },
+          "response": []
+        },
+        {
+          "name": "Create module",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('moduleId', body.id);",
+                  "    pm.test('moduleId saved', () => pm.expect(body.id).to.be.a('string'));",
+                  "    pm.test('pathId matches', () => pm.expect(body.pathId).to.eql(pm.collectionVariables.get('pathId')));",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Week 1 — Arrival\",\n  \"description\": \"Your first days in Berlin. Airport, transport, finding your apartment.\",\n  \"orderIndex\": 1,\n  \"status\": \"DRAFT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/paths/{{pathId}}/modules",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "{{pathId}}", "modules"]
+            },
+            "description": "Creates a module without a thumbnail. Saves the returned ID to the `moduleId` collection variable."
+          },
+          "response": []
+        },
+        {
+          "name": "Create module — with thumbnail",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 201', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('moduleId', body.id);",
+                  "    pm.test('moduleId saved', () => pm.expect(body.id).to.be.a('string'));",
+                  "    pm.test('thumbnail is a presigned URL', () => {",
+                  "        if (body.thumbnail) pm.expect(body.thumbnail).to.include('X-Amz-Signature');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Week 1 — Arrival\",\n  \"description\": \"Your first days in Berlin. Airport, transport, finding your apartment.\",\n  \"thumbnail\": \"{{thumbnailKey}}\",\n  \"orderIndex\": 1,\n  \"status\": \"DRAFT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/paths/{{pathId}}/modules",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "{{pathId}}", "modules"]
+            },
+            "description": "Creates a module with a thumbnail.\n\nPrerequisite: run **Upload thumbnail** first — the key is injected via `{{thumbnailKey}}`.\n\nThe response `thumbnail` field will be a fresh presigned URL."
+          },
+          "response": []
+        },
+        {
+          "name": "Create module — second",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Week 2 — First Week at Work\",\n  \"description\": \"Navigating your new workplace, colleagues, and daily commute.\",\n  \"orderIndex\": 2,\n  \"status\": \"DRAFT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/paths/{{pathId}}/modules",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "{{pathId}}", "modules"]
+            },
+            "description": "Creates a second module at order_index 2."
+          },
+          "response": []
+        },
+        {
+          "name": "Create module — validation error",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Missing title, orderIndex and status — should return 400\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/paths/{{pathId}}/modules",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "{{pathId}}", "modules"]
+            },
+            "description": "Intentionally omits required fields. Expects 400 Bad Request."
+          },
+          "response": []
+        },
+        {
+          "name": "Update module",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Week 1 — Arrival (Updated)\",\n  \"description\": \"Updated module description.\",\n  \"orderIndex\": 1,\n  \"status\": \"PUBLISHED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/paths/{{pathId}}/modules/{{moduleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "{{pathId}}", "modules", "{{moduleId}}"]
+            },
+            "description": "Full update of a module. To keep or change the thumbnail, include `\"thumbnail\": \"{{thumbnailKey}}\"` in the body. Omitting it clears the thumbnail. Returns 404 if path or module does not exist."
+          },
+          "response": []
+        },
+        {
+          "name": "Delete module",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/paths/{{pathId}}/modules/{{moduleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "{{pathId}}", "modules", "{{moduleId}}"]
+            },
+            "description": "Deletes the module. Returns 204 on success."
+          },
+          "response": []
+        },
+        {
+          "name": "List modules — path not found",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/paths/00000000-0000-0000-0000-000000000000/modules",
+              "host": ["{{baseUrl}}"],
+              "path": ["paths", "00000000-0000-0000-0000-000000000000", "modules"]
+            },
+            "description": "Uses a nil UUID for pathId. Expects 404 Not Found."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
