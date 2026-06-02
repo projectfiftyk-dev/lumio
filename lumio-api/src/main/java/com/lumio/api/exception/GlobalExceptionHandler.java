@@ -47,6 +47,12 @@ public class GlobalExceptionHandler {
                 .body(errorBody(HttpStatus.PAYLOAD_TOO_LARGE, "File exceeds the maximum allowed size of 100 MB"));
     }
 
+    @ExceptionHandler(UnprocessableEntityException.class)
+    ResponseEntity<Map<String, Object>> handleUnprocessable(UnprocessableEntityException ex) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(errorBody(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage()));
+    }
+
     @ExceptionHandler(StorageException.class)
     ResponseEntity<Map<String, Object>> handleStorage(StorageException ex) {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

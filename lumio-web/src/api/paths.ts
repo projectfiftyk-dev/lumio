@@ -1,7 +1,7 @@
 import { apiFetch } from './client';
 
 export type Vertical = 'language' | 'kids' | 'learners' | 'reader';
-export type ContentStatus = 'draft' | 'published';
+export type ContentStatus = 'draft' | 'published' | 'archived';
 
 export interface PathResponse {
   id: string;

@@ -9,7 +9,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -50,15 +52,30 @@ public class StorageService {
     }
 
     public String getPresignedUrl(String objectKey) {
+        return getPresignedUrl(objectKey, presignedUrlExpiryDays, TimeUnit.DAYS);
+    }
+
+    public String getPresignedUrl(String objectKey, int duration, TimeUnit unit) {
         try {
             return minioClient.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
                     .bucket(bucket)
                     .object(objectKey)
                     .method(Method.GET)
-                    .expiry(presignedUrlExpiryDays, TimeUnit.DAYS)
+                    .expiry(duration, unit)
                     .build());
         } catch (Exception e) {
             throw new StorageException("Failed to generate presigned URL for " + objectKey, e);
+        }
+    }
+
+    public String getContent(String objectKey) {
+        try (InputStream is = minioClient.getObject(GetObjectArgs.builder()
+                .bucket(bucket)
+                .object(objectKey)
+                .build())) {
+            return new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new StorageException("Failed to read object: " + objectKey, e);
         }
     }
 
@@ -76,7 +93,6 @@ public class StorageService {
 
     public String uploadYaml(MultipartFile file) {
         String contentType = file.getContentType();
-        // Browsers often send application/octet-stream for YAML — accept it
         if (contentType != null
                 && !contentType.contains("yaml")
                 && !contentType.contains("text/")
@@ -85,7 +101,6 @@ public class StorageService {
         }
 
         String key = "books/" + UUID.randomUUID() + ".yaml";
-
         try (InputStream is = file.getInputStream()) {
             minioClient.putObject(PutObjectArgs.builder()
                     .bucket(bucket)
@@ -98,6 +113,23 @@ public class StorageService {
         }
 
         LOGGER.info("Uploaded YAML {} ({} bytes)", key, file.getSize());
+        return key;
+    }
+
+    public String uploadYamlForBook(UUID bookId, String content) {
+        String key = "books/" + bookId + "/book.yaml";
+        byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        try (InputStream is = new ByteArrayInputStream(bytes)) {
+            minioClient.putObject(PutObjectArgs.builder()
+                    .bucket(bucket)
+                    .object(key)
+                    .stream(is, bytes.length, -1)
+                    .contentType("application/x-yaml")
+                    .build());
+        } catch (Exception e) {
+            throw new StorageException("Failed to upload YAML for book " + bookId, e);
+        }
+        LOGGER.info("Uploaded YAML for book {}", bookId);
         return key;
     }
 

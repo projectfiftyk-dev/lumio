@@ -8,6 +8,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
@@ -16,7 +17,12 @@ public class BookMapper {
     private final StorageService storageService;
 
     public BookResponse toResponse(LumioBook book) {
+        return toResponse(book, null);
+    }
+
+    public BookResponse toResponse(LumioBook book, Map<String, String> assets) {
         String coverKey = book.getCoverImageKey();
+        String yamlKey = book.getYamlKey();
         return new BookResponse(
                 book.getId(),
                 book.getModule().getId(),
@@ -27,12 +33,14 @@ public class BookMapper {
                 book.getOrderIndex(),
                 book.getRequired(),
                 book.getPrerequisiteBookIds(),
-                book.getYamlKey(),
+                yamlKey,
+                toPresignedUrl(yamlKey),
                 book.getDurationMinutes(),
                 book.getLevel(),
                 book.getLanguage(),
                 book.getAuthor(),
                 book.getStatus(),
+                assets,
                 book.getCreatedAt(),
                 book.getUpdatedAt()
         );

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, Plus, Pencil, Trash2, BookOpen, Loader, Eye, EyeOff, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Plus, Pencil, Trash2, BookOpen, Loader, Eye, EyeOff, ChevronDown, Users } from 'lucide-react';
 import clsx from 'clsx';
 import { getModules, deleteModule, patchModuleStatus, type ModuleResponse } from '../api/modules';
 import { type PathResponse } from '../api/paths';
 import { useApp } from '../context/AppContext';
 import ModuleModal from './ModuleModal';
 import BooksSection from './BooksSection';
+import CharactersView from './CharactersView';
 import ConfirmDialog from '../components/ConfirmDialog';
 
 interface Props {
@@ -22,34 +23,31 @@ const VERTICAL_COLORS: Record<string, string> = {
 
 interface ModuleRowProps {
   mod: ModuleResponse;
+  pathId: string;
   isEditMode: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onToggleStatus: () => void;
 }
 
-function ModuleRow({ mod, isEditMode, onEdit, onDelete, onToggleStatus }: ModuleRowProps) {
+function ModuleRow({ mod, pathId, isEditMode, onEdit, onDelete, onToggleStatus }: ModuleRowProps) {
   const [expanded, setExpanded] = useState(true);
 
   return (
     <div className="lumio-card overflow-hidden">
-      {/* Thumbnail — full width, no background wrapper */}
       {mod.thumbnail && (
-        <div className="relative">
-          <img src={mod.thumbnail} alt={mod.title} className="w-full h-auto object-contain" />
-          {/* Collapse button overlaid on image */}
+        <div className="relative w-full h-20 overflow-hidden">
+          <img src={mod.thumbnail} alt={mod.title} className="w-full h-full object-cover" />
           <button
             onClick={() => setExpanded((v) => !v)}
-            className="absolute top-3 right-3 p-1.5 bg-black/30 hover:bg-black/50 text-white rounded-lg transition-colors cursor-pointer backdrop-blur-sm"
+            className="absolute top-2 right-2 p-1.5 bg-black/30 hover:bg-black/50 text-white rounded-lg transition-colors cursor-pointer backdrop-blur-sm"
           >
             <ChevronDown className={clsx('w-4 h-4 transition-transform duration-200', expanded && 'rotate-180')} />
           </button>
         </div>
       )}
 
-      {/* Title row — always visible, centered */}
       <div className="flex items-center justify-between px-5 py-3 gap-3">
-
         <h3 className="font-bold text-[#1A1839] dark:text-white text-sm text-center flex-1">{mod.title}</h3>
 
         <div className="flex items-center gap-0.5 flex-shrink-0">
@@ -60,6 +58,8 @@ function ModuleRow({ mod, isEditMode, onEdit, onDelete, onToggleStatus }: Module
                   'text-xs px-2 py-0.5 rounded-full font-medium mr-1',
                   mod.status === 'published'
                     ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-400'
+                    : mod.status === 'archived'
+                    ? 'bg-slate-100 text-slate-600 dark:bg-slate-800/60 dark:text-slate-400'
                     : 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-400',
                 )}
               >
@@ -68,13 +68,15 @@ function ModuleRow({ mod, isEditMode, onEdit, onDelete, onToggleStatus }: Module
               <button
                 title={mod.status === 'published' ? 'Set to Draft' : 'Publish'}
                 onClick={onToggleStatus}
-                className="p-1.5 text-violet-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition-colors cursor-pointer"
+                disabled={mod.status === 'archived'}
+                className="p-1.5 text-violet-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {mod.status === 'published' ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
               <button
                 onClick={onEdit}
-                className="p-1.5 text-violet-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition-colors cursor-pointer"
+                disabled={mod.status === 'archived'}
+                className="p-1.5 text-violet-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-violet-950/40 rounded-lg transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Pencil className="w-3.5 h-3.5" />
               </button>
@@ -87,7 +89,6 @@ function ModuleRow({ mod, isEditMode, onEdit, onDelete, onToggleStatus }: Module
             </>
           )}
 
-          {/* Collapse toggle when no thumbnail */}
           {!mod.thumbnail && (
             <button
               onClick={() => setExpanded((v) => !v)}
@@ -99,21 +100,23 @@ function ModuleRow({ mod, isEditMode, onEdit, onDelete, onToggleStatus }: Module
         </div>
       </div>
 
-      {/* Collapsible: description + books */}
       {expanded && (
         <div className="border-t border-[#E2DFFF] dark:border-[#2d2b47] px-5 pb-5">
           {mod.description && (
             <p className="text-xs text-violet-400 dark:text-violet-500 text-center pt-4 pb-2">{mod.description}</p>
           )}
-          <BooksSection moduleId={mod.id} isEditMode={isEditMode} />
+          <BooksSection pathId={pathId} moduleId={mod.id} isEditMode={isEditMode} />
         </div>
       )}
     </div>
   );
 }
 
+type Tab = 'modules' | 'characters';
+
 export default function ModulesView({ path, onBack }: Props) {
   const { isEditMode } = useApp();
+  const [tab, setTab] = useState<Tab>('modules');
   const [modules, setModules] = useState<ModuleResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -122,7 +125,7 @@ export default function ModulesView({ path, onBack }: Props) {
   const [deleting, setDeleting] = useState<ModuleResponse | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
 
-  useEffect(() => { load(); }, [path.id]);
+  useEffect(() => { if (tab === 'modules') load(); }, [path.id, tab]);
 
   async function load() {
     setLoading(true);
@@ -178,7 +181,7 @@ export default function ModulesView({ path, onBack }: Props) {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onBack}
@@ -194,7 +197,7 @@ export default function ModulesView({ path, onBack }: Props) {
           </span>
         </div>
 
-        {isEditMode && (
+        {isEditMode && tab === 'modules' && (
           <button onClick={() => setShowCreate(true)} className="lumio-btn-primary text-sm py-2.5 flex items-center gap-2 flex-shrink-0 ml-4">
             <Plus className="w-4 h-4" />
             Add Module
@@ -202,36 +205,73 @@ export default function ModulesView({ path, onBack }: Props) {
         )}
       </div>
 
-      {loading && (
-        <div className="flex items-center justify-center py-20">
-          <Loader className="w-6 h-6 text-violet-400 animate-spin" />
-        </div>
-      )}
+      {/* Tab switcher */}
+      <div className="flex gap-1 p-1 rounded-xl bg-[#F5F3FF] dark:bg-[#1a1833] border border-[#E2DFFF] dark:border-[#2d2b47] w-fit mb-6">
+        <button
+          onClick={() => setTab('modules')}
+          className={clsx(
+            'flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer',
+            tab === 'modules'
+              ? 'bg-white dark:bg-[#12112a] text-violet-700 dark:text-violet-300 shadow-sm'
+              : 'text-violet-400 dark:text-violet-600 hover:text-violet-600 dark:hover:text-violet-400',
+          )}
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          Modules
+        </button>
+        <button
+          onClick={() => setTab('characters')}
+          className={clsx(
+            'flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer',
+            tab === 'characters'
+              ? 'bg-white dark:bg-[#12112a] text-violet-700 dark:text-violet-300 shadow-sm'
+              : 'text-violet-400 dark:text-violet-600 hover:text-violet-600 dark:hover:text-violet-400',
+          )}
+        >
+          <Users className="w-3.5 h-3.5" />
+          Characters
+        </button>
+      </div>
 
-      {error && <div className="lumio-card p-4 text-sm text-red-500">{error}</div>}
+      {/* Characters tab */}
+      {tab === 'characters' && <CharactersView pathId={path.id} />}
 
-      {!loading && !error && visible.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-20 text-center">
-          <BookOpen className="w-10 h-10 text-violet-200 dark:text-violet-800 mb-3" />
-          <p className="text-violet-400 dark:text-violet-500 text-sm">
-            {isEditMode ? 'No modules yet. Add one to get started.' : 'No published modules available yet.'}
-          </p>
-        </div>
-      )}
+      {/* Modules tab */}
+      {tab === 'modules' && (
+        <>
+          {loading && (
+            <div className="flex items-center justify-center py-20">
+              <Loader className="w-6 h-6 text-violet-400 animate-spin" />
+            </div>
+          )}
 
-      {!loading && !error && visible.length > 0 && (
-        <div className="space-y-3">
-          {visible.map((mod) => (
-            <ModuleRow
-              key={mod.id}
-              mod={mod}
-              isEditMode={isEditMode}
-              onEdit={() => setEditing(mod)}
-              onDelete={() => setDeleting(mod)}
-              onToggleStatus={() => toggleModuleStatus(mod)}
-            />
-          ))}
-        </div>
+          {error && <div className="lumio-card p-4 text-sm text-red-500">{error}</div>}
+
+          {!loading && !error && visible.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <BookOpen className="w-10 h-10 text-violet-200 dark:text-violet-800 mb-3" />
+              <p className="text-violet-400 dark:text-violet-500 text-sm">
+                {isEditMode ? 'No modules yet. Add one to get started.' : 'No published modules available yet.'}
+              </p>
+            </div>
+          )}
+
+          {!loading && !error && visible.length > 0 && (
+            <div className="space-y-3">
+              {visible.map((mod) => (
+                <ModuleRow
+                  key={mod.id}
+                  mod={mod}
+                  pathId={path.id}
+                  isEditMode={isEditMode}
+                  onEdit={() => setEditing(mod)}
+                  onDelete={() => setDeleting(mod)}
+                  onToggleStatus={() => toggleModuleStatus(mod)}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {showCreate && (

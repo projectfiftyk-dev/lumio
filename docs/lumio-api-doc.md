@@ -1,5 +1,5 @@
 # Lumio API Documentation
-**Paths, Modules & Books — v0.2**  
+**Paths, Modules, Books & Characters — v0.3**  
 Internal Draft · May 2026
 
 ---
@@ -8,6 +8,7 @@ Internal Draft · May 2026
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v0.3 | May 2026 | Added Characters section, YAML import/preview/commit flow, book immutability rule, validation endpoint, MinIO asset structure, pre-signed URL pattern |
 | v0.2 | May 2026 | Added Books/Episodes section with unlock logic, prerequisites, and YAML storage |
 | v0.1 | May 2026 | Initial — Paths and Modules |
 
@@ -15,11 +16,12 @@ Internal Draft · May 2026
 
 ## Overview
 
-This document covers the first three resource groups supported by the Lumio API: Paths, Modules, and Books.
+This document covers the Lumio API resource groups: Paths, Modules, Books, and Characters.
 
 **Content hierarchy:**
 ```
 Path  →  Module  →  Book/Episode  →  Scene  →  Node
+  └── Characters (scoped to Path, appear across books)
 ```
 
 All endpoints are currently open (no authentication required). Auth will be added in a later phase via Spring Security + JWT, at which point write operations will require an editor or admin role.
@@ -152,10 +154,6 @@ GET /api/paths?search=germany&vertical=LANGUAGE&status=PUBLISHED
 
 Returns a single path by its UUID. Returns `404` if not found.
 
-```
-GET /api/paths/a1b2c3d4-e5f6-...
-```
-
 ---
 
 ### 1.6 POST /api/paths
@@ -189,7 +187,7 @@ Updates an existing path. Send the full resource body — all fields are replace
 
 ### 1.8 DELETE /api/paths/{id}
 
-Deletes a path and cascades deletion to all its modules. Returns `204 No Content` on success. Returns `404` if the path does not exist.
+Deletes a path and cascades deletion to all its modules and characters. Returns `204 No Content` on success.
 
 ---
 
@@ -286,26 +284,40 @@ Deletes a module. Returns `204 No Content` on success. Cascade deletion to books
 
 ## 3. Books
 
-A Book (also called an Episode) is the core content unit — a single interactive narrative experience stored as a YAML file in MinIO. Books live inside a Module and are progressed through sequentially, with unlock logic controlling when each book becomes available to the learner.
+A Book (also called an Episode) is the core content unit — a single interactive narrative experience stored as a YAML file in MinIO. Books live inside a Module and are progressed through sequentially, with unlock logic controlling when each becomes available.
 
-### 3.1 Unlock Logic
+### 3.1 Book Immutability Rule
+
+**A book in `PUBLISHED` or `ARCHIVED` status cannot be edited.** This protects users who are mid-progress on a book from encountering structural changes mid-session.
+
+```
+DRAFT     → freely editable, not visible to end users
+PUBLISHED → locked, visible in catalogue, new users can start
+ARCHIVED  → locked, hidden from catalogue, existing progress still completable
+```
+
+To fix a published book: duplicate it as a new DRAFT, edit the draft, publish the new version. Archive the old one once existing users have completed it.
+
+Status transition enforcement — any write operation (`PUT`, `PUT .../content`) against a non-DRAFT book returns `422 Unprocessable Entity`.
+
+---
+
+### 3.2 Unlock Logic
 
 Books use a prerequisite system to control progression. Each book declares which other books must be completed before it becomes available.
 
-**How it works:**
-
 - `required` — whether this book must be completed to finish the module. Optional books (`required: false`) can be skipped without blocking module completion.
-- `prerequisite_book_ids` — a list of book UUIDs that must all be completed before this book unlocks. An empty array means the book is available immediately.
+- `prerequisite_book_ids` — list of book UUIDs that must all be completed before this book unlocks. Empty array means immediately available.
 
 **Examples:**
 
-Linear progression — each book unlocks the next:
+Linear progression:
 ```
 Book 1 (no prerequisites) → complete → unlocks Book 2
 Book 2 (prerequisite: Book 1) → complete → unlocks Book 3
 ```
 
-Multi-book gate — two books must be done before the third unlocks:
+Multi-book gate:
 ```
 Book 1 (no prerequisites)  ─┐
                              ├─ both complete → unlocks Book 3
@@ -313,30 +325,91 @@ Book 2 (no prerequisites)  ─┘
 Book 3 (prerequisites: Book 1, Book 2)
 ```
 
-Optional bonus book — does not block progression:
+Optional bonus book:
 ```
-Book 1 → complete → unlocks Book 2 (required) + Book 3 (optional bonus)
-Book 2 (required) → completing this finishes the module
+Book 1 → complete → unlocks Book 2 (required) + Book 3 (optional)
+Book 2 (required: true)  → must complete for module completion
 Book 3 (required: false) → available but skippable
 ```
 
 ---
 
-### 3.2 Endpoint Summary
+### 3.3 Asset Structure in MinIO
+
+All assets for a book are stored under a single prefix keyed by book ID:
+
+```
+lumio/                          ← single bucket
+├── books/
+│   └── {bookId}/
+│       ├── book.yaml
+│       ├── audio/
+│       │   ├── node_intro_1.mp3
+│       │   └── node_scene_2.mp3
+│       └── images/
+│           ├── scene_cafe.svg
+│           └── scene_street.svg
+├── paths/
+│   └── thumbnails/
+└── modules/
+    └── thumbnails/
+```
+
+The YAML stores only filenames — not full URLs:
+
+```yaml
+scenes:
+  - id: cafe_arrival
+    background: scene_cafe.svg
+    assets:
+      images: [scene_cafe.svg, scene_street.svg]
+      audio: [node_intro_1.mp3]
+    nodes:
+      - id: intro_1
+        type: dialogue
+        character: sofia
+        text: "Bonjour!"
+        audio: node_intro_1.mp3
+```
+
+Spring Boot constructs full MinIO paths at serve time. The `assets` block per scene enables lazy loading — the server knows which assets belong to which scene without deep node parsing.
+
+---
+
+### 3.4 Pre-signed URL Pattern
+
+Assets are never proxied through Spring Boot. When the frontend requests a book, the server returns pre-signed MinIO URLs that expire after the session window (default: 2 hours). The frontend loads assets directly from MinIO.
+
+```json
+{
+  "book": { "...metadata..." },
+  "assets": {
+    "scene_cafe.svg": "https://minio/lumio/books/abc123/images/scene_cafe.svg?X-Amz-Signature=...",
+    "node_intro_1.mp3": "https://minio/lumio/books/abc123/audio/node_intro_1.mp3?X-Amz-Signature=..."
+  }
+}
+```
+
+Pre-signed URLs are generated only after authorization checks pass. A user who has not unlocked a book never receives its asset URLs.
+
+---
+
+### 3.5 Endpoint Summary
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/paths/{pathId}/modules/{moduleId}/books` | List all books in a module |
-| `GET` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}` | Retrieve a single book |
-| `GET` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}/content` | Fetch the full YAML content from MinIO |
+| `GET` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}` | Retrieve a single book with pre-signed asset URLs |
 | `POST` | `/api/paths/{pathId}/modules/{moduleId}/books` | Create a book (metadata only) |
-| `PUT` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}` | Update book metadata |
-| `PUT` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}/content` | Upload or replace YAML content in MinIO |
-| `DELETE` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}` | Delete a book and its YAML from MinIO |
+| `PUT` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}` | Update book metadata (DRAFT only) |
+| `DELETE` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}` | Delete a book and all its MinIO assets |
+| `POST` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}/import/preview` | Dry-run YAML import — returns structure and character conflicts without saving |
+| `POST` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}/import/commit` | Commit YAML import with conflict resolution instructions |
+| `GET` | `/api/paths/{pathId}/modules/{moduleId}/books/{id}/validate` | Validate book structure and return errors and warnings |
 
 ---
 
-### 3.3 Book Fields
+### 3.6 Book Fields
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -348,51 +421,187 @@ Book 3 (required: false) → available but skippable
 | `order_index` | Integer | Yes | Display order within the module. Lower index appears first. |
 | `required` | Boolean | Yes | Whether this book must be completed for module completion. Defaults to `true`. |
 | `prerequisite_book_ids` | UUID[] | No | List of book IDs that must be completed before this book unlocks. Empty array means immediately available. |
-| `yaml_path` | String | Auto | MinIO object path to the YAML content file. Set automatically on content upload. |
+| `yaml_path` | String | Auto | MinIO object path to the YAML content file. Set automatically on import commit. |
 | `duration_minutes` | Integer | No | Estimated play time. Shown on the book card. |
-| `level` | String | No | Difficulty level for this specific book: `A1`, `A2`, `B1`, etc. |
-| `status` | Enum | Yes | `DRAFT` or `PUBLISHED`. |
+| `level` | String | No | Difficulty level: `A1`, `A2`, `B1`, etc. |
+| `status` | Enum | Yes | `DRAFT`, `PUBLISHED`, or `ARCHIVED`. Write operations blocked on non-DRAFT books. |
 | `created_at` | DateTime | Auto | Set on creation. |
 | `updated_at` | DateTime | Auto | Updated on every write. |
 
 ---
 
-### 3.4 GET /api/paths/{pathId}/modules/{moduleId}/books
+### 3.7 POST .../import/preview
 
-Returns all books in a module, ordered by `order_index` ascending. Each book includes an `unlocked` boolean computed from the current user's progress (when auth is active — always `true` for now).
+Dry-run YAML import. Parses the uploaded YAML, extracts book structure and character definitions, and compares characters against existing path characters. **Nothing is saved.**
+
+Returns a preview object showing the parsed structure and any character conflicts. The editor displays this before the user commits.
+
+**Request**
+```
+POST /api/paths/{pathId}/modules/{moduleId}/books/{id}/import/preview
+Content-Type: application/yaml
+
+[raw YAML content]
+```
+
+**Response**
+```json
+{
+  "scenes_count": 5,
+  "nodes_count": 23,
+  "characters_in_yaml": [
+    { "id": "sofia", "name": "Sofia", "personality": "Café owner in Paris, warm and friendly." }
+  ],
+  "character_conflicts": [
+    {
+      "status": "CONFLICT",
+      "character_id": "sofia",
+      "existing": {
+        "name": "Sofia",
+        "personality": "Café owner, friendly."
+      },
+      "incoming": {
+        "name": "Sofia",
+        "personality": "Café owner in Paris, warm and friendly."
+      },
+      "diff": {
+        "personality": {
+          "existing": "Café owner, friendly.",
+          "incoming": "Café owner in Paris, warm and friendly."
+        }
+      }
+    }
+  ],
+  "new_characters": [],
+  "structural_errors": [],
+  "warnings": [
+    "3 nodes have no audio assigned",
+    "Scene 4 has no background image"
+  ]
+}
+```
+
+**Character conflict status values:**
+
+| Status | Meaning |
+|--------|---------|
+| `NEW` | Character does not exist on this path — will be created on commit |
+| `IDENTICAL` | Character exists and matches exactly — no action needed |
+| `CONFLICT` | Character exists but attributes differ — resolution required before commit |
+
+---
+
+### 3.8 POST .../import/commit
+
+Commits the YAML import. Saves the YAML to MinIO, updates the book record, and creates or updates characters according to the resolution instructions provided.
+
+Must include a resolution for every `CONFLICT` character returned by the preview. `NEW` and `IDENTICAL` characters do not require a resolution entry.
+
+**Request**
+```json
+{
+  "yaml": "[raw YAML string]",
+  "character_resolutions": [
+    {
+      "character_id": "sofia",
+      "resolution": "USE_INCOMING"
+    }
+  ]
+}
+```
+
+**Resolution values:**
+
+| Value | Meaning |
+|-------|---------|
+| `KEEP_EXISTING` | Ignore the incoming character definition. Keep the path character unchanged. |
+| `USE_INCOMING` | Replace the existing path character with the incoming definition. |
+
+**Response**
+
+Returns the updated book record with `yaml_path` set.
+
+---
+
+### 3.9 GET .../validate
+
+Validates the book's YAML structure. Structural errors block publishing. Warnings are advisory. Checklist items require manual confirmation before status can change to `PUBLISHED`.
+
+**Response**
+```json
+{
+  "ready": false,
+  "structural_errors": [
+    "Node scene_2_node_3 references next: scene_4 which does not exist",
+    "No end scene defined"
+  ],
+  "warnings": [
+    "Scene 3 has no audio assigned",
+    "3 nodes have no background image"
+  ],
+  "checklist": {
+    "content_reviewed": false,
+    "audio_complete": false,
+    "images_complete": true
+  }
+}
+```
+
+A book with `structural_errors` cannot be published. Returns `422` if a publish attempt is made while errors exist.
+
+---
+
+## 4. Characters
+
+Characters are scoped to a Path and appear across multiple books within that path. Each character accumulates conversation history per user throughout the path — they remember what was said in earlier episodes.
+
+Characters are created either directly via the Character endpoints or automatically during a YAML import commit when a `NEW` character is detected.
+
+### 4.1 Endpoint Summary
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/paths/{pathId}/characters` | List all characters for a path |
+| `GET` | `/api/paths/{pathId}/characters/{id}` | Retrieve a single character |
+| `POST` | `/api/paths/{pathId}/characters` | Create a character |
+| `PUT` | `/api/paths/{pathId}/characters/{id}` | Update a character |
+| `DELETE` | `/api/paths/{pathId}/characters/{id}` | Delete a character |
+
+---
+
+### 4.2 Character Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | UUID | Auto | Generated on creation. |
+| `path_id` | UUID | Auto | Set from the URL path parameter. |
+| `slug` | String | Yes | Short identifier used to reference this character in YAML files (e.g. `sofia`, `airport_officer`). Must be unique within the path. |
+| `name` | String | Yes | Display name shown in the reader UI. |
+| `description` | String | No | Brief human-readable description of who this character is. |
+| `personality` | String | No | System prompt used for AI character chat. Defines how the character speaks, what they know, and their relationship to the learner. |
+| `avatar_path` | String | No | MinIO object path to the character avatar image. Set when avatar is uploaded. |
+| `voice_id` | String | No | ElevenLabs voice ID. Set when a voice is assigned in the editor. |
+| `created_at` | DateTime | Auto | Set on creation. |
+| `updated_at` | DateTime | Auto | Updated on every write. |
+
+---
+
+### 4.3 GET /api/paths/{pathId}/characters
+
+Returns all characters for a path. Returns `404` if the path does not exist.
 
 **Example Response**
 ```json
 [
   {
-    "id": "b1b2b3b4-...",
-    "module_id": "m1m2m3m4-...",
-    "title": "Day 1 — The Airport",
-    "description": "You land in Berlin. Navigate arrivals, passport control, and find your transfer.",
-    "order_index": 1,
-    "required": true,
-    "prerequisite_book_ids": [],
-    "yaml_path": "books/german-a1/module-1/day-1-airport.yaml",
-    "duration_minutes": 10,
-    "level": "A1",
-    "status": "PUBLISHED",
-    "unlocked": true,
-    "created_at": "2026-05-29T08:00:00Z",
-    "updated_at": "2026-05-29T08:00:00Z"
-  },
-  {
-    "id": "b5b6b7b8-...",
-    "module_id": "m1m2m3m4-...",
-    "title": "Day 2 — The S-Bahn",
-    "description": "Buy a ticket and navigate the Berlin public transport system.",
-    "order_index": 2,
-    "required": true,
-    "prerequisite_book_ids": ["b1b2b3b4-..."],
-    "yaml_path": "books/german-a1/module-1/day-2-sbahn.yaml",
-    "duration_minutes": 8,
-    "level": "A1",
-    "status": "PUBLISHED",
-    "unlocked": false,
+    "id": "c1c2c3c4-...",
+    "path_id": "a1b2c3d4-...",
+    "slug": "sofia",
+    "name": "Sofia",
+    "description": "Café owner in Paris, early 40s. Warm, no-nonsense, speaks quickly.",
+    "personality": "You are Sofia, a Parisian café owner. You speak French naturally and are patient with learners but don't slow down unnecessarily. You remember previous conversations with the learner.",
+    "avatar_path": null,
+    "voice_id": null,
     "created_at": "2026-05-29T08:00:00Z",
     "updated_at": "2026-05-29T08:00:00Z"
   }
@@ -401,62 +610,37 @@ Returns all books in a module, ordered by `order_index` ascending. Each book inc
 
 ---
 
-### 3.5 GET .../books/{id}/content
+### 4.4 POST /api/paths/{pathId}/characters
 
-Fetches the full YAML content for a book directly from MinIO. Returns the raw YAML string. Returns `404` if the book has no content uploaded yet.
-
-```
-GET /api/paths/{pathId}/modules/{moduleId}/books/{id}/content
-```
-
----
-
-### 3.6 POST .../books
-
-Creates a book metadata record. YAML content is uploaded separately via the content endpoint.
+Creates a character on a path. The `slug` must be unique within the path — this is what YAML files use to reference the character.
 
 **Request Body**
 ```json
 {
-  "title": "Day 1 — The Airport",
-  "description": "You land in Berlin. Navigate arrivals and find your transfer.",
-  "order_index": 1,
-  "required": true,
-  "prerequisite_book_ids": [],
-  "duration_minutes": 10,
-  "level": "A1",
-  "status": "DRAFT"
+  "slug": "sofia",
+  "name": "Sofia",
+  "description": "Café owner in Paris, early 40s. Warm and direct.",
+  "personality": "You are Sofia, a Parisian café owner. You speak French naturally and are patient but don't slow down unnecessarily."
 }
 ```
 
 ---
 
-### 3.7 PUT .../books/{id}/content
+### 4.5 PUT /api/paths/{pathId}/characters/{id}
 
-Uploads or replaces the YAML file for a book in MinIO. Accepts `text/plain` or `application/yaml` content type. Automatically sets `yaml_path` on the book record.
-
-```
-PUT /api/paths/{pathId}/modules/{moduleId}/books/{id}/content
-Content-Type: application/yaml
-
-metadata:
-  title: "Day 1 — The Airport"
-  version: "1.0"
-scenes:
-  - id: arrivals
-    start: true
-    ...
-```
+Updates a character. Returns the updated resource. Note: updating `personality` affects all future AI conversations for this character across all books in the path. Existing conversation history is not affected.
 
 ---
 
-### 3.8 DELETE .../books/{id}
+### 4.6 DELETE /api/paths/{pathId}/characters/{id}
 
-Deletes the book metadata record and removes the associated YAML file from MinIO. Returns `204 No Content` on success.
+Deletes a character. Returns `204 No Content`. Does not delete conversation history — user progress records referencing this character are preserved for historical accuracy.
+
+> **Warning:** Deleting a character that is referenced in a published book's YAML will cause reader errors at those nodes. Validate all published books after a character deletion.
 
 ---
 
-## 4. Error Codes
+## 5. Error Codes
 
 | Code | Meaning |
 |------|---------|
@@ -465,20 +649,20 @@ Deletes the book metadata record and removes the associated YAML file from MinIO
 | `204` | No Content — deletion succeeded. No body returned. |
 | `400` | Bad Request — validation failed. Check required fields and enum values. |
 | `404` | Not Found — the resource with the given ID does not exist. |
-| `409` | Conflict — prerequisite_book_ids references a book that does not belong to the same module. |
+| `409` | Conflict — slug already exists on this path, or prerequisite_book_ids references a book outside this module. |
+| `422` | Unprocessable Entity — attempted to edit a non-DRAFT book, or attempted to publish a book with structural errors. |
 | `500` | Internal Server Error — unexpected failure. Check server logs. |
 
 ---
 
-## 5. What's Next
+## 6. What's Next
 
 The following resource groups will be documented as they are implemented:
 
-- `Characters` — nested under Paths
-- `User Progress` — per user, per book, including unlock state computation
-- `User Conversations` — per user, per character
-- `Authentication` — JWT, roles, Spring Security
+- `User Progress` — per user, per book. Includes current scene, current node, choice history (JSONB), and completed flag. Used to compute `unlocked` state on book responses.
+- `User Conversations` — per user, per character. Stores full message history as JSONB. Passed as context on every AI character call.
+- `Authentication` — JWT, roles, Spring Security. Write operations will require editor or admin role. Read operations remain public or require valid user token depending on content status.
+- `Audio Generation` — ElevenLabs integration. Generate and attach MP3s to dialogue nodes via the editor.
+- `Image Generation` — AI scene image generation and upload. Attach SVG or image assets to scene nodes via the editor.
 
-Authentication will be retrofitted onto existing endpoints — no structural changes required. Write operations (`POST`, `PUT`, `DELETE`) will require an editor or admin role. Read operations will remain public or require a valid user token depending on content status.
-
-Once auth is active, the `unlocked` field on book responses will be computed dynamically per user based on their completed book history against each book's `prerequisite_book_ids`.
+Authentication will be retrofitted onto existing endpoints — no structural changes required. Once active, pre-signed URL generation will enforce subscription and unlock checks per user.

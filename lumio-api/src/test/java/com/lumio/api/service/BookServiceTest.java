@@ -7,6 +7,7 @@ import com.lumio.api.enums.ContentStatus;
 import com.lumio.api.enums.Vertical;
 import com.lumio.api.exception.ResourceNotFoundException;
 import com.lumio.api.persistence.BookRepository;
+import com.lumio.api.persistence.CharacterRepository;
 import com.lumio.api.persistence.ModuleRepository;
 import com.lumio.api.service.mapper.BookMapper;
 import com.lumio.api.transfer.BookPreviewResponse;
@@ -36,9 +37,11 @@ class BookServiceTest {
 
     @Mock BookRepository bookRepository;
     @Mock ModuleRepository moduleRepository;
+    @Mock CharacterRepository characterRepository;
     @Mock BookMapper bookMapper;
     @Mock StorageService storageService;
     @Mock YamlParserService yamlParserService;
+    @Mock BookValidationService bookValidationService;
 
     @InjectMocks BookService bookService;
 
@@ -46,16 +49,18 @@ class BookServiceTest {
     private LumioModule sampleModule;
     private LumioBook sampleBook;
     private BookResponse sampleResponse;
+    private UUID pathId;
     private UUID moduleId;
     private UUID bookId;
 
     @BeforeEach
     void setUp() {
+        pathId   = UUID.randomUUID();
         moduleId = UUID.randomUUID();
-        bookId = UUID.randomUUID();
+        bookId   = UUID.randomUUID();
 
         samplePath = new LumioPath();
-        samplePath.setId(UUID.randomUUID());
+        samplePath.setId(pathId);
         samplePath.setTitle("Test Path");
         samplePath.setVertical(Vertical.LANGUAGE);
         samplePath.setStatus(ContentStatus.DRAFT);
@@ -83,27 +88,28 @@ class BookServiceTest {
 
         sampleResponse = new BookResponse(
                 bookId, moduleId, "Book 1", null, null, null,
-                1, false, List.of(), null, null, null, null, null,
-                ContentStatus.DRAFT, OffsetDateTime.now(), OffsetDateTime.now()
+                1, false, List.of(), null, null, null, null, null, null,
+                ContentStatus.DRAFT, null,
+                OffsetDateTime.now(), OffsetDateTime.now()
         );
     }
 
     @Test
     void getAllForModule_throws_whenModuleNotFound() {
-        when(moduleRepository.existsById(moduleId)).thenReturn(false);
+        when(moduleRepository.findByIdAndPathId(moduleId, pathId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> bookService.getAllForModule(moduleId))
+        assertThatThrownBy(() -> bookService.getAllForModule(pathId, moduleId))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining(moduleId.toString());
     }
 
     @Test
     void getAllForModule_returnsOrderedBooks() {
-        when(moduleRepository.existsById(moduleId)).thenReturn(true);
+        when(moduleRepository.findByIdAndPathId(moduleId, pathId)).thenReturn(Optional.of(sampleModule));
         when(bookRepository.findByModuleIdOrderByOrderIndexAsc(moduleId)).thenReturn(List.of(sampleBook));
         when(bookMapper.toResponse(sampleBook)).thenReturn(sampleResponse);
 
-        List<BookResponse> result = bookService.getAllForModule(moduleId);
+        List<BookResponse> result = bookService.getAllForModule(pathId, moduleId);
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).title()).isEqualTo("Book 1");
@@ -112,11 +118,11 @@ class BookServiceTest {
     @Test
     void create_setsModuleAndSaves() {
         BookRequest request = new BookRequest("Book 1", null, null, 1, false, null, null, null, null, null, ContentStatus.DRAFT);
-        when(moduleRepository.findById(moduleId)).thenReturn(Optional.of(sampleModule));
+        when(moduleRepository.findByIdAndPathId(moduleId, pathId)).thenReturn(Optional.of(sampleModule));
         when(bookRepository.save(any(LumioBook.class))).thenReturn(sampleBook);
         when(bookMapper.toResponse(sampleBook)).thenReturn(sampleResponse);
 
-        BookResponse response = bookService.create(moduleId, request);
+        BookResponse response = bookService.create(pathId, moduleId, request);
 
         assertThat(response.moduleId()).isEqualTo(moduleId);
         verify(bookRepository).save(any(LumioBook.class));
@@ -125,19 +131,19 @@ class BookServiceTest {
     @Test
     void create_throws_whenModuleNotFound() {
         BookRequest request = new BookRequest("Book 1", null, null, 1, false, null, null, null, null, null, ContentStatus.DRAFT);
-        when(moduleRepository.findById(moduleId)).thenReturn(Optional.empty());
+        when(moduleRepository.findByIdAndPathId(moduleId, pathId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> bookService.create(moduleId, request))
+        assertThatThrownBy(() -> bookService.create(pathId, moduleId, request))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
     void delete_deletesYamlFromStorageAndEntity() {
         sampleBook.setYamlKey("books/some-uuid.yaml");
-        when(moduleRepository.existsById(moduleId)).thenReturn(true);
+        when(moduleRepository.findByIdAndPathId(moduleId, pathId)).thenReturn(Optional.of(sampleModule));
         when(bookRepository.findByIdAndModuleId(bookId, moduleId)).thenReturn(Optional.of(sampleBook));
 
-        bookService.delete(moduleId, bookId);
+        bookService.delete(pathId, moduleId, bookId);
 
         verify(storageService).delete("books/some-uuid.yaml");
         verify(bookRepository).delete(sampleBook);
@@ -145,17 +151,19 @@ class BookServiceTest {
 
     @Test
     void delete_throws_whenBookNotFound() {
-        when(moduleRepository.existsById(moduleId)).thenReturn(true);
+        when(moduleRepository.findByIdAndPathId(moduleId, pathId)).thenReturn(Optional.of(sampleModule));
         when(bookRepository.findByIdAndModuleId(bookId, moduleId)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> bookService.delete(moduleId, bookId))
+        assertThatThrownBy(() -> bookService.delete(pathId, moduleId, bookId))
                 .isInstanceOf(ResourceNotFoundException.class);
     }
 
     @Test
     void previewYaml_delegatesToParser() {
-        MockMultipartFile file = new MockMultipartFile("file", "book.yaml", "application/x-yaml", "metadata:\n  title: Test".getBytes());
-        BookPreviewResponse expected = new BookPreviewResponse("Test", null, null, null, List.of(), null, null, 1, 0, Map.of());
+        MockMultipartFile file = new MockMultipartFile("file", "book.yaml", "application/x-yaml",
+                "metadata:\n  title: Test".getBytes());
+        BookPreviewResponse expected = new BookPreviewResponse(
+                "Test", null, null, null, List.of(), null, null, 1, 0, Map.of());
         when(yamlParserService.parse(file)).thenReturn(expected);
 
         BookPreviewResponse result = bookService.previewYaml(file);
@@ -167,17 +175,19 @@ class BookServiceTest {
     @Test
     void importYaml_replacesOldYamlAndSaves() {
         sampleBook.setYamlKey("books/old-uuid.yaml");
-        MockMultipartFile file = new MockMultipartFile("file", "book.yaml", "application/x-yaml", "metadata:\n  title: New Content".getBytes());
-        BookPreviewResponse preview = new BookPreviewResponse("New Content", "Author", "en", "desc", List.of(), "A1", null, 1, 2, Map.of("dialogue", 2));
+        MockMultipartFile file = new MockMultipartFile("file", "book.yaml", "application/x-yaml",
+                "metadata:\n  title: New Content".getBytes());
+        BookPreviewResponse preview = new BookPreviewResponse(
+                "New Content", "Author", "en", "desc", List.of(), "A1", null, 1, 2, Map.of("dialogue", 2));
 
-        when(moduleRepository.existsById(moduleId)).thenReturn(true);
+        when(moduleRepository.findByIdAndPathId(moduleId, pathId)).thenReturn(Optional.of(sampleModule));
         when(bookRepository.findByIdAndModuleId(bookId, moduleId)).thenReturn(Optional.of(sampleBook));
         when(yamlParserService.parse(file)).thenReturn(preview);
         when(storageService.uploadYaml(file)).thenReturn("books/new-uuid.yaml");
         when(bookRepository.save(sampleBook)).thenReturn(sampleBook);
         when(bookMapper.toResponse(sampleBook)).thenReturn(sampleResponse);
 
-        BookResponse response = bookService.importYaml(moduleId, bookId, file);
+        BookResponse response = bookService.importYaml(pathId, moduleId, bookId, file);
 
         assertThat(response).isNotNull();
         verify(storageService).delete("books/old-uuid.yaml");
@@ -190,13 +200,13 @@ class BookServiceTest {
         sampleBook.setCoverImageKey("thumbnails/old.jpg");
         MockMultipartFile file = new MockMultipartFile("file", "cover.jpg", "image/jpeg", new byte[]{1, 2, 3});
 
-        when(moduleRepository.existsById(moduleId)).thenReturn(true);
+        when(moduleRepository.findByIdAndPathId(moduleId, pathId)).thenReturn(Optional.of(sampleModule));
         when(bookRepository.findByIdAndModuleId(bookId, moduleId)).thenReturn(Optional.of(sampleBook));
         when(storageService.upload(file)).thenReturn("thumbnails/new.jpg");
         when(bookRepository.save(sampleBook)).thenReturn(sampleBook);
         when(bookMapper.toResponse(sampleBook)).thenReturn(sampleResponse);
 
-        BookResponse response = bookService.uploadCover(moduleId, bookId, file);
+        BookResponse response = bookService.uploadCover(pathId, moduleId, bookId, file);
 
         assertThat(response).isNotNull();
         verify(storageService).delete("thumbnails/old.jpg");

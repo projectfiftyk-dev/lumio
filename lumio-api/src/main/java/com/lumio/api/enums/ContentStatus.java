@@ -5,7 +5,8 @@ import com.fasterxml.jackson.annotation.JsonValue;
 
 public enum ContentStatus {
     DRAFT,
-    PUBLISHED;
+    PUBLISHED,
+    ARCHIVED;
 
     @JsonValue
     public String toValue() {

@@ -6,6 +6,7 @@ import { createBook, updateBook, previewBookYaml, type BookResponse, type BookRe
 import type { ContentStatus } from '../api/paths';
 
 interface Props {
+  pathId: string;
   moduleId: string;
   existing?: BookResponse;
   nextOrderIndex: number;
@@ -16,7 +17,7 @@ interface Props {
 const fieldClass =
   'w-full rounded-xl px-4 py-2.5 text-sm bg-[#F5F3FF] dark:bg-[#0f0e1a] border border-[#E2DFFF] dark:border-[#2d2b47] text-[#1A1839] dark:text-violet-100 placeholder:text-violet-300 dark:placeholder:text-violet-700 focus:outline-none focus:border-violet-400 dark:focus:border-violet-500 transition-colors';
 
-export default function BookModal({ moduleId, existing, nextOrderIndex, onClose, onSaved }: Props) {
+export default function BookModal({ pathId, moduleId, existing, nextOrderIndex, onClose, onSaved }: Props) {
   const [title, setTitle] = useState(existing?.title ?? '');
   const [author, setAuthor] = useState(existing?.author ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
@@ -44,7 +45,7 @@ export default function BookModal({ moduleId, existing, nextOrderIndex, onClose,
     setYamlFile(f);
     setYamlLoading(true);
     try {
-      const preview = await previewBookYaml(moduleId, f);
+      const preview = await previewBookYaml(pathId, moduleId, f);
       if (preview.title) setTitle(preview.title);
       if (preview.author) setAuthor(preview.author);
       if (preview.description) setDescription(preview.description);
@@ -77,8 +78,8 @@ export default function BookModal({ moduleId, existing, nextOrderIndex, onClose,
     };
     try {
       const result = existing
-        ? await updateBook(moduleId, existing.id, data)
-        : await createBook(moduleId, data);
+        ? await updateBook(pathId, moduleId, existing.id, data)
+        : await createBook(pathId, moduleId, data);
       onSaved(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed');
@@ -226,6 +227,7 @@ export default function BookModal({ moduleId, existing, nextOrderIndex, onClose,
               >
                 <option value="draft">Draft</option>
                 <option value="published">Published</option>
+                <option value="archived">Archived</option>
               </select>
             </div>
             <div className="flex items-end pb-2.5">
