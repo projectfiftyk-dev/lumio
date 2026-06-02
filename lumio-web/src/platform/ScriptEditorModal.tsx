@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, Plus, Trash2, ChevronRight, MessageSquare, ListChecks, PenLine, AlertCircle, Loader, Users } from 'lucide-react';
+import { X, Plus, Trash2, ChevronRight, MessageSquare, ListChecks, PenLine, AlertCircle, Loader, Users, Merge, Ungroup } from 'lucide-react';
 import clsx from 'clsx';
 import * as yaml from 'js-yaml';
 import { confirmBookYaml, uploadBookYaml, type BookResponse } from '../api/books';
@@ -201,6 +201,73 @@ const NODE_ICONS: Record<string, React.ReactNode> = {
 
 const SLUG_RE_GLOBAL = /^[a-z0-9_]+$/;
 
+// nodeBreaks: Record<nodeId, false> means "merge with previous node (same row)"
+// default (no entry / true) means "start a new row"
+function groupNodesByRow(nodes: ScriptNode[], breaks: Record<string, boolean>): ScriptNode[][] {
+  const rows: ScriptNode[][] = [];
+  let current: ScriptNode[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    if (i === 0 || breaks[node.id] !== false) {
+      if (current.length) rows.push(current);
+      current = [node];
+    } else {
+      current.push(node);
+    }
+  }
+  if (current.length) rows.push(current);
+  return rows;
+}
+
+function nodePreview(node: ScriptNode): string {
+  if (node.type === 'dialogue') return node.text ? node.text.slice(0, 40) : '(empty)';
+  if (node.type === 'choice') return node.prompt ? node.prompt.slice(0, 40) : '(choice)';
+  if (node.type === 'free_text') return node.prompt ? node.prompt.slice(0, 40) : '(free text)';
+  return node.id;
+}
+
+function NextNodeSelect({
+  value,
+  onChange,
+  allScenes,
+  currentNodeId,
+  onHoverTarget,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  allScenes: Scene[];
+  currentNodeId: string;
+  onHoverTarget: (id: string | null) => void;
+}) {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onMouseEnter={() => value && onHoverTarget(value)}
+      onMouseLeave={() => onHoverTarget(null)}
+      onFocus={() => value && onHoverTarget(value)}
+      onBlur={() => onHoverTarget(null)}
+      className={`${fieldClass} cursor-pointer text-xs`}
+      title="Next node"
+    >
+      <option value="">(end / no next)</option>
+      {allScenes.map((scene) => {
+        const others = scene.nodes.filter((n) => n.id !== currentNodeId);
+        if (!others.length) return null;
+        return (
+          <optgroup key={scene.id} label={`Scene: ${scene.id}${scene.start ? ' (start)' : ''}`}>
+            {others.map((n) => (
+              <option key={n.id} value={n.id}>
+                [{n.type}] {n.id} — {nodePreview(n)}
+              </option>
+            ))}
+          </optgroup>
+        );
+      })}
+    </select>
+  );
+}
+
 function CharacterSelect({
   value,
   onChange,
@@ -325,6 +392,12 @@ function NodeEditor({
   characters,
   pendingChars,
   onAddPendingChar,
+  allScenes,
+  highlighted,
+  onHoverTarget,
+  canMerge,
+  isMerged,
+  onToggleMerge,
 }: {
   node: ScriptNode;
   onChange: (n: ScriptNode) => void;
@@ -332,6 +405,12 @@ function NodeEditor({
   characters: CharacterResponse[];
   pendingChars: PendingChar[];
   onAddPendingChar: (pc: PendingChar) => void;
+  allScenes: Scene[];
+  highlighted: boolean;
+  onHoverTarget: (id: string | null) => void;
+  canMerge: boolean;
+  isMerged: boolean;
+  onToggleMerge: () => void;
 }) {
   function changeType(type: ScriptNode['type']) {
     if (type === 'dialogue') onChange(newDialogue());
@@ -340,10 +419,10 @@ function NodeEditor({
   }
 
   return (
-    <div className="lumio-card p-4 space-y-3">
-      <div className="flex items-center gap-2">
+    <div className={clsx('lumio-card p-4 space-y-3 transition-all duration-200', highlighted && 'ring-2 ring-violet-400 dark:ring-violet-500 ring-offset-1')}>
+      <div className="flex items-center gap-2 flex-wrap">
         <span className="text-violet-400">{NODE_ICONS[node.type]}</span>
-        <span className="text-xs font-mono text-violet-300 dark:text-violet-600 flex-1">{node.id}</span>
+        <span className="text-xs font-mono text-violet-300 dark:text-violet-600 flex-1 truncate">{node.id}</span>
         <select
           value={node.type}
           onChange={(e) => changeType(e.target.value as ScriptNode['type'])}
@@ -353,6 +432,21 @@ function NodeEditor({
           <option value="choice">Choice</option>
           <option value="free_text">Free text</option>
         </select>
+        {canMerge && (
+          <button
+            type="button"
+            title={isMerged ? 'Split to own row' : 'Merge onto previous row'}
+            onClick={onToggleMerge}
+            className={clsx(
+              'p-1 rounded-lg transition-colors cursor-pointer',
+              isMerged
+                ? 'text-violet-500 bg-violet-100 dark:bg-violet-950/60 hover:text-violet-700'
+                : 'text-violet-300 dark:text-violet-700 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-violet-950/40',
+            )}
+          >
+            {isMerged ? <Ungroup className="w-3.5 h-3.5" /> : <Merge className="w-3.5 h-3.5" />}
+          </button>
+        )}
         <button
           type="button"
           onClick={onDelete}
@@ -378,12 +472,16 @@ function NodeEditor({
             rows={2}
             className={`${fieldClass} resize-none`}
           />
-          <input
-            value={node.next}
-            onChange={(e) => onChange({ ...node, next: e.target.value })}
-            placeholder="Next node ID (optional)"
-            className={fieldClass}
-          />
+          <div>
+            <p className="text-[10px] text-violet-400 dark:text-violet-600 mb-1">Next node</p>
+            <NextNodeSelect
+              value={node.next}
+              onChange={(v) => onChange({ ...node, next: v })}
+              allScenes={allScenes}
+              currentNodeId={node.id}
+              onHoverTarget={onHoverTarget}
+            />
+          </div>
         </div>
       )}
 
@@ -407,15 +505,18 @@ function NodeEditor({
                   placeholder="Option label"
                   className={clsx(fieldClass, 'flex-1')}
                 />
-                <input
-                  value={opt.next}
-                  onChange={(e) => {
-                    const opts = node.options.map((o, j) => (j === i ? { ...o, next: e.target.value } : o));
-                    onChange({ ...node, options: opts });
-                  }}
-                  placeholder="→ node ID"
-                  className={clsx(fieldClass, 'w-28')}
-                />
+                <div className="w-48 flex-shrink-0">
+                  <NextNodeSelect
+                    value={opt.next}
+                    onChange={(v) => {
+                      const opts = node.options.map((o, j) => (j === i ? { ...o, next: v } : o));
+                      onChange({ ...node, options: opts });
+                    }}
+                    allScenes={allScenes}
+                    currentNodeId={node.id}
+                    onHoverTarget={onHoverTarget}
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={() => onChange({ ...node, options: node.options.filter((_, j) => j !== i) })}
@@ -450,12 +551,16 @@ function NodeEditor({
             placeholder="Goal"
             className={fieldClass}
           />
-          <input
-            value={node.on_success}
-            onChange={(e) => onChange({ ...node, on_success: e.target.value })}
-            placeholder="On success → node ID"
-            className={fieldClass}
-          />
+          <div>
+            <p className="text-[10px] text-violet-400 dark:text-violet-600 mb-1">On success → next node</p>
+            <NextNodeSelect
+              value={node.on_success}
+              onChange={(v) => onChange({ ...node, on_success: v })}
+              allScenes={allScenes}
+              currentNodeId={node.id}
+              onHoverTarget={onHoverTarget}
+            />
+          </div>
         </div>
       )}
     </div>
@@ -490,11 +595,28 @@ export default function ScriptEditorModal({ pathId, moduleId, nextOrderIndex, ex
   });
   const [scenes, setScenes] = useState<Scene[]>([newScene(true)]);
   const [activeSceneIdx, setActiveSceneIdx] = useState(0);
+  // Extra scenes shown alongside the active one (Ctrl+click to add/remove)
+  const [extraSelectedIds, setExtraSelectedIds] = useState<Set<string>>(new Set());
   const [orderIndex, setOrderIndex] = useState(existing?.orderIndex ?? nextOrderIndex);
   const [required, setRequired] = useState(existing?.required ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showYamlPreview, setShowYamlPreview] = useState(false);
+  // nodeBreaks[nodeId] = false → merge with previous node (same row)
+  const [nodeBreaks, setNodeBreaks] = useState<Record<string, boolean>>({});
+  const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+
+  function toggleMerge(nodeId: string) {
+    setNodeBreaks((prev) => {
+      const isMerged = prev[nodeId] === false;
+      if (isMerged) {
+        const next = { ...prev };
+        delete next[nodeId];
+        return next;
+      }
+      return { ...prev, [nodeId]: false };
+    });
+  }
 
   // Load YAML from existing book on mount
   useEffect(() => {
@@ -527,7 +649,11 @@ export default function ScriptEditorModal({ pathId, moduleId, nextOrderIndex, ex
       .finally(() => setCharsLoading(false));
   }, [pathId]);
 
-  const activeScene = scenes[activeSceneIdx];
+  // Ordered list of scene indices to display (active + extras, sorted by position)
+  const visibleSceneIndices = [
+    activeSceneIdx,
+    ...scenes.map((s, i) => i).filter((i) => i !== activeSceneIdx && extraSelectedIds.has(scenes[i].id)),
+  ].sort((a, b) => a - b);
 
   function updateScene(idx: number, updated: Scene) {
     setScenes((prev) => prev.map((s, i) => (i === idx ? updated : s)));
@@ -537,29 +663,50 @@ export default function ScriptEditorModal({ pathId, moduleId, nextOrderIndex, ex
     const s = newScene(false);
     setScenes((prev) => [...prev, s]);
     setActiveSceneIdx(scenes.length);
+    setExtraSelectedIds(new Set());
   }
 
   function deleteScene(idx: number) {
     if (scenes.length === 1) return;
+    const deletedId = scenes[idx].id;
     const next = scenes.filter((_, i) => i !== idx);
     if (!next.some((s) => s.start)) next[0] = { ...next[0], start: true };
     setScenes(next);
-    setActiveSceneIdx(Math.min(activeSceneIdx, next.length - 1));
+    setActiveSceneIdx(Math.min(activeSceneIdx === idx ? Math.max(0, idx - 1) : activeSceneIdx > idx ? activeSceneIdx - 1 : activeSceneIdx, next.length - 1));
+    setExtraSelectedIds((prev) => { const s = new Set(prev); s.delete(deletedId); return s; });
   }
 
-  function addNode(type: ScriptNode['type']) {
+  function handleSceneClick(idx: number, e: React.MouseEvent) {
+    if (e.ctrlKey || e.metaKey) {
+      const id = scenes[idx].id;
+      if (idx === activeSceneIdx) return; // can't deselect primary
+      setExtraSelectedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+      });
+    } else {
+      setActiveSceneIdx(idx);
+      setExtraSelectedIds(new Set());
+    }
+  }
+
+  function addNodeToScene(sceneIdx: number, type: ScriptNode['type']) {
+    const scene = scenes[sceneIdx];
     const node = type === 'dialogue' ? newDialogue() : type === 'choice' ? newChoice() : newFreeText();
-    updateScene(activeSceneIdx, { ...activeScene, nodes: [...activeScene.nodes, node] });
+    updateScene(sceneIdx, { ...scene, nodes: [...scene.nodes, node] });
   }
 
-  function updateNode(nodeIdx: number, updated: ScriptNode) {
-    const nodes = activeScene.nodes.map((n, i) => (i === nodeIdx ? updated : n));
-    updateScene(activeSceneIdx, { ...activeScene, nodes });
+  function updateNodeInScene(sceneIdx: number, nodeIdx: number, updated: ScriptNode) {
+    const scene = scenes[sceneIdx];
+    const nodes = scene.nodes.map((n, i) => (i === nodeIdx ? updated : n));
+    updateScene(sceneIdx, { ...scene, nodes });
   }
 
-  function deleteNode(nodeIdx: number) {
-    const nodes = activeScene.nodes.filter((_, i) => i !== nodeIdx);
-    updateScene(activeSceneIdx, { ...activeScene, nodes });
+  function deleteNodeFromScene(sceneIdx: number, nodeIdx: number) {
+    const scene = scenes[sceneIdx];
+    const nodes = scene.nodes.filter((_, i) => i !== nodeIdx);
+    updateScene(sceneIdx, { ...scene, nodes });
   }
 
   function autoSlug(name: string) {
@@ -804,7 +951,7 @@ export default function ScriptEditorModal({ pathId, moduleId, nextOrderIndex, ex
           {/* Scenes list */}
           {leftTab === 'scenes' && (
             <div className="flex-1 overflow-y-auto p-3 space-y-1">
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-1">
                 <p className="text-xs font-semibold text-violet-400 dark:text-violet-500 uppercase tracking-wider">
                   {scenes.length} scene{scenes.length !== 1 ? 's' : ''}
                 </p>
@@ -816,31 +963,39 @@ export default function ScriptEditorModal({ pathId, moduleId, nextOrderIndex, ex
                   <Plus className="w-3.5 h-3.5" />
                 </button>
               </div>
-              {scenes.map((scene, idx) => (
-                <div
-                  key={scene.id}
-                  className={clsx(
-                    'flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer group transition-colors',
-                    idx === activeSceneIdx
-                      ? 'bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300'
-                      : 'hover:bg-[#F5F3FF] dark:hover:bg-[#0f0e1a] text-[#1A1839] dark:text-violet-200',
-                  )}
-                  onClick={() => setActiveSceneIdx(idx)}
-                >
-                  <ChevronRight className="w-3 h-3 flex-shrink-0" />
-                  <span className="text-xs font-mono flex-1 truncate">{scene.id}</span>
-                  {scene.start && (
-                    <span className="text-xs text-emerald-500 font-medium flex-shrink-0">start</span>
-                  )}
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); deleteScene(idx); }}
-                    className="opacity-0 group-hover:opacity-100 p-0.5 text-violet-300 hover:text-red-500 rounded transition-colors cursor-pointer flex-shrink-0"
+              <p className="text-[10px] text-violet-300 dark:text-violet-700 mb-2">⌘/Ctrl+click to show multiple</p>
+              {scenes.map((scene, idx) => {
+                const isActive = idx === activeSceneIdx;
+                const isExtra = extraSelectedIds.has(scene.id);
+                const isSelected = isActive || isExtra;
+                return (
+                  <div
+                    key={scene.id}
+                    className={clsx(
+                      'flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer group transition-colors',
+                      isActive
+                        ? 'bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border border-violet-200 dark:border-violet-800'
+                        : isExtra
+                        ? 'bg-violet-50 dark:bg-violet-950/20 text-violet-600 dark:text-violet-400 border border-dashed border-violet-300 dark:border-violet-700'
+                        : 'hover:bg-[#F5F3FF] dark:hover:bg-[#0f0e1a] text-[#1A1839] dark:text-violet-200',
+                    )}
+                    onClick={(e) => handleSceneClick(idx, e)}
                   >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
+                    <ChevronRight className={clsx('w-3 h-3 flex-shrink-0', isSelected && 'text-violet-500')} />
+                    <span className="text-xs font-mono flex-1 truncate">{scene.id}</span>
+                    {scene.start && (
+                      <span className="text-xs text-emerald-500 font-medium flex-shrink-0">start</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); deleteScene(idx); }}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 text-violet-300 hover:text-red-500 rounded transition-colors cursor-pointer flex-shrink-0"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -965,56 +1120,104 @@ export default function ScriptEditorModal({ pathId, moduleId, nextOrderIndex, ex
           )}
         </div>
 
-        {/* Center — node editor for active scene */}
+        {/* Center — one or more scenes rendered sequentially */}
         <div className="flex-1 overflow-y-auto p-5">
           {showYamlPreview ? (
             <pre className="text-xs text-violet-700 dark:text-violet-300 font-mono bg-[#F5F3FF] dark:bg-[#0f0e1a] p-4 rounded-xl border border-[#E2DFFF] dark:border-[#2d2b47] overflow-auto whitespace-pre-wrap">
               {yamlPreview}
             </pre>
-          ) : activeScene ? (
-            <div className="max-w-xl mx-auto">
-              <div className="flex items-center gap-3 mb-4">
-                <p className="text-sm font-bold text-[#1A1839] dark:text-white font-mono">{activeScene.id}</p>
-                <label className="flex items-center gap-1.5 text-xs text-[#1A1839] dark:text-violet-200 cursor-pointer ml-auto">
-                  <input
-                    type="checkbox"
-                    checked={activeScene.start}
-                    onChange={(e) => updateScene(activeSceneIdx, { ...activeScene, start: e.target.checked })}
-                    className="w-3.5 h-3.5 accent-violet-600"
-                  />
-                  Start scene
-                </label>
-              </div>
+          ) : (
+            <div className="space-y-8">
+              {visibleSceneIndices.map((sceneIdx, displayIdx) => {
+                const scene = scenes[sceneIdx];
+                const isActive = sceneIdx === activeSceneIdx;
+                return (
+                  <div key={scene.id}>
+                    {/* Scene separator (for 2nd+ scenes) */}
+                    {displayIdx > 0 && (
+                      <div className="flex items-center gap-3 mb-6 -mt-2">
+                        <div className="flex-1 border-t border-dashed border-[#E2DFFF] dark:border-[#2d2b47]" />
+                        <span className="text-[10px] text-violet-300 dark:text-violet-700 uppercase tracking-widest">scene</span>
+                        <div className="flex-1 border-t border-dashed border-[#E2DFFF] dark:border-[#2d2b47]" />
+                      </div>
+                    )}
 
-              <div className="space-y-3">
-                {activeScene.nodes.map((node, i) => (
-                  <NodeEditor
-                    key={node.id}
-                    node={node}
-                    onChange={(updated) => updateNode(i, updated)}
-                    onDelete={() => deleteNode(i)}
-                    characters={characters}
-                    pendingChars={pendingChars}
-                    onAddPendingChar={(pc) => setPendingChars((prev) => [...prev, pc])}
-                  />
-                ))}
-              </div>
+                    {/* Scene header — click to make active */}
+                    <div
+                      className={clsx(
+                        'flex items-center gap-3 mb-4 px-3 py-2 rounded-xl cursor-pointer transition-colors',
+                        isActive
+                          ? 'bg-violet-50 dark:bg-violet-950/20'
+                          : 'hover:bg-[#F5F3FF] dark:hover:bg-[#0f0e1a]',
+                      )}
+                      onClick={() => { setActiveSceneIdx(sceneIdx); setExtraSelectedIds(new Set()); }}
+                    >
+                      <p className="text-sm font-bold text-[#1A1839] dark:text-white font-mono flex-1">{scene.id}</p>
+                      {scene.start && (
+                        <span className="text-xs text-emerald-500 font-semibold">start</span>
+                      )}
+                      <label
+                        className="flex items-center gap-1.5 text-xs text-[#1A1839] dark:text-violet-200 cursor-pointer"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={scene.start}
+                          onChange={(e) => updateScene(sceneIdx, { ...scene, start: e.target.checked })}
+                          className="w-3.5 h-3.5 accent-violet-600"
+                        />
+                        Start scene
+                      </label>
+                    </div>
 
-              <div className="flex gap-2 mt-4">
-                {(['dialogue', 'choice', 'free_text'] as const).map((type) => (
-                  <button
-                    key={type}
-                    type="button"
-                    onClick={() => addNode(type)}
-                    className="lumio-btn-ghost text-xs py-1.5 px-3 flex items-center gap-1.5"
-                  >
-                    {NODE_ICONS[type]}
-                    {type === 'free_text' ? 'Free text' : type.charAt(0).toUpperCase() + type.slice(1)}
-                  </button>
-                ))}
-              </div>
+                    {/* Nodes grouped into rows */}
+                    <div className="space-y-3">
+                      {groupNodesByRow(scene.nodes, nodeBreaks).map((rowNodes, rowIdx) => (
+                        <div key={rowIdx} className={clsx(rowNodes.length > 1 ? 'flex gap-3 items-start' : '')}>
+                          {rowNodes.map((node) => {
+                            const nodeIdx = scene.nodes.indexOf(node);
+                            return (
+                              <div key={node.id} className={clsx(rowNodes.length > 1 && 'flex-1 min-w-0')}>
+                                <NodeEditor
+                                  node={node}
+                                  onChange={(updated) => updateNodeInScene(sceneIdx, nodeIdx, updated)}
+                                  onDelete={() => deleteNodeFromScene(sceneIdx, nodeIdx)}
+                                  characters={characters}
+                                  pendingChars={pendingChars}
+                                  onAddPendingChar={(pc) => setPendingChars((prev) => [...prev, pc])}
+                                  allScenes={scenes}
+                                  highlighted={highlightedNodeId === node.id}
+                                  onHoverTarget={setHighlightedNodeId}
+                                  canMerge={nodeIdx > 0}
+                                  isMerged={nodeBreaks[node.id] === false}
+                                  onToggleMerge={() => toggleMerge(node.id)}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Add node buttons */}
+                    <div className="flex gap-2 mt-4">
+                      {(['dialogue', 'choice', 'free_text'] as const).map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => addNodeToScene(sceneIdx, type)}
+                          className="lumio-btn-ghost text-xs py-1.5 px-3 flex items-center gap-1.5"
+                        >
+                          {NODE_ICONS[type]}
+                          {type === 'free_text' ? 'Free text' : type.charAt(0).toUpperCase() + type.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          ) : null}
+          )}
         </div>
       </div>
     </div>
